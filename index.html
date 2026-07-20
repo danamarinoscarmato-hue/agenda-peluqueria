@@ -357,7 +357,7 @@ function SalonApp() {
           ? <FichaCliente id={clienteAbierto} datos={datos} guardar={guardar} volver={() => setClienteAbierto(null)} />
           : <Clientes datos={datos} guardar={guardar} abrir={setClienteAbierto} />)}
         {tab === "nuevos" && <PorAgregar datos={datos} guardar={guardar} abrir={(id) => { setTab("clientes"); setClienteAbierto(id); }} />}
-        {tab === "record" && <Recordatorios pendientes={pendientes} clienteDe={clienteDe} mensajeDe={mensajeDe} enviarWsp={enviarWsp} servicios={config.servicios || []} />}
+        {tab === "record" && <Recordatorios pendientes={pendientes} clienteDe={clienteDe} mensajeDe={mensajeDe} enviarWsp={enviarWsp} servicios={config.servicios || []} estilistas={config.estilistas || []} />}
         {tab === "config" && adminAplica && <Ajustes datos={datos} guardar={guardar} syncUrl={syncUrl} cambiarSyncUrl={cambiarSyncUrl} syncEstado={syncEstado} />}
 
         {!adminAplica && (
@@ -443,29 +443,34 @@ const DIAS_LAB = ["mar", "mié", "jue", "vie", "sáb"];
 function Agenda({ datos, guardar, clienteDe }) {
   const { clientes, turnos } = datos;
   const servicios = datos.config.servicios || [];
+  const estilistas = datos.config.estilistas || [];
   const [vista, setVista] = useState("dia");
   const [fechaSel, setFechaSel] = useState(hoyISO());
-  const [f, setF] = useState({ clienteId: "", hora: "10:00", servicios: [], modo: "base", nombreNuevo: "", telNuevo: "", busca: "", fecha: hoyISO() });
+  const [f, setF] = useState({ clienteId: "", hora: "10:00", servicios: [], estilistaId: "", modo: "base", nombreNuevo: "", telNuevo: "", busca: "", fecha: hoyISO() });
   const [editId, setEditId] = useState(null);
   const formRef = useRef(null);
 
+  const estilistaDe = (t) => estilistas.find((e) => e.id === t.estilistaId);
+  const colorEst = (id) => SWATCHES[Math.max(0, estilistas.findIndex((e) => e.id === id)) % SWATCHES.length];
+
   const empezarEdicion = (t) => {
     setEditId(t.id);
-    setF({ clienteId: t.clienteId, hora: t.hora, servicios: t.servicios || [], modo: "base", nombreNuevo: "", telNuevo: "", busca: "", fecha: t.fecha });
+    setF({ clienteId: t.clienteId, hora: t.hora, servicios: t.servicios || [], estilistaId: t.estilistaId || "", modo: "base", nombreNuevo: "", telNuevo: "", busca: "", fecha: t.fecha });
     setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   };
   const cancelarEdicion = () => {
     setEditId(null);
-    setF({ ...f, clienteId: "", servicios: [], busca: "" });
+    setF({ ...f, clienteId: "", servicios: [], estilistaId: "", busca: "" });
   };
+  const estReq = estilistas.length > 0;
   const guardarEdicion = () => {
     const t0 = turnos.find((t) => t.id === editId);
-    if (!t0 || !f.clienteId || f.servicios.length === 0) return;
+    if (!t0 || !f.clienteId || f.servicios.length === 0 || (estReq && !f.estilistaId)) return;
     const cambioHorario = t0.fecha !== f.fecha || t0.hora !== f.hora;
     guardar({
       ...datos,
       turnos: turnos.map((t) => t.id === editId
-        ? { ...t, clienteId: f.clienteId, hora: f.hora, servicios: f.servicios, fecha: f.fecha, recordado: cambioHorario ? false : t.recordado }
+        ? { ...t, clienteId: f.clienteId, hora: f.hora, servicios: f.servicios, estilistaId: f.estilistaId, fecha: f.fecha, recordado: cambioHorario ? false : t.recordado }
         : t),
     });
     if (f.fecha !== fechaSel) setFechaSel(f.fecha);
@@ -482,8 +487,8 @@ function Agenda({ datos, guardar, clienteDe }) {
     .sort((a, b) => a.hora.localeCompare(b.hora));
 
   const agregar = () => {
-    if (!f.hora || f.servicios.length === 0) return;
-    const nuevoTurno = (clienteId) => ({ clienteId, hora: f.hora, servicios: f.servicios, fecha: fechaSel, id: uid(), recordado: false });
+    if (!f.hora || f.servicios.length === 0 || (estReq && !f.estilistaId)) return;
+    const nuevoTurno = (clienteId) => ({ clienteId, hora: f.hora, servicios: f.servicios, estilistaId: f.estilistaId, fecha: fechaSel, id: uid(), recordado: false });
     if (f.modo === "nuevo") {
       if (!f.nombreNuevo.trim()) return;
       const nc = { id: uid(), nombre: f.nombreNuevo.trim(), telefono: f.telNuevo.trim(), notas: [], provisional: true };
@@ -627,6 +632,17 @@ function Agenda({ datos, guardar, clienteDe }) {
                     onClick={() => toggleServ(s.id)}>{s.nombre} · {s.min}′</button>
                 ))}
               </div>
+              {estilistas.length > 0 && (
+                <>
+                  <label style={{ marginTop: 12 }}>Estilista</label>
+                  <div className="servchips">
+                    {estilistas.map((e) => (
+                      <button key={e.id} className={"schip" + (f.estilistaId === e.id ? " on" : "")}
+                        onClick={() => setF({ ...f, estilistaId: e.id })}>{e.nombre}</button>
+                    ))}
+                  </div>
+                </>
+              )}
               {durSel > 0 && (
                 <div className="durinfo">
                   Ocupa {durSel >= 60 ? `${Math.floor(durSel / 60)} h ${durSel % 60 ? durSel % 60 + " min" : ""}` : `${durSel} min`} — de {f.hora} a {aHora(aMin(f.hora) + durSel)} hs
@@ -636,12 +652,12 @@ function Agenda({ datos, guardar, clienteDe }) {
               {editId ? (
                 <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
                   <button className="btn" onClick={guardarEdicion}
-                    disabled={!f.clienteId || f.servicios.length === 0 || cerrado(f.fecha)}>Guardar cambios</button>
+                    disabled={!f.clienteId || f.servicios.length === 0 || (estReq && !f.estilistaId) || cerrado(f.fecha)}>Guardar cambios</button>
                   <button className="btn sec" onClick={cancelarEdicion}>Cancelar</button>
                 </div>
               ) : (
                 <button className="btn" style={{ marginTop: 12 }} onClick={agregar}
-                  disabled={f.servicios.length === 0 || (f.modo === "nuevo" ? !f.nombreNuevo.trim() : !f.clienteId)}>Agendar turno</button>
+                  disabled={f.servicios.length === 0 || (estReq && !f.estilistaId) || (f.modo === "nuevo" ? !f.nombreNuevo.trim() : !f.clienteId)}>Agendar turno</button>
               )}
               {editId && cerrado(f.fecha) && <div className="aviso" style={{ marginTop: 10, marginBottom: 0 }}>⚠️ Esa fecha cae domingo o lunes, cuando el local está cerrado.</div>}
             </div>
@@ -659,15 +675,17 @@ function Agenda({ datos, guardar, clienteDe }) {
                 <div className="tl-area" style={{ top: 10 }}>
                   {conPos.map(({ t, ini, fin, lane }) => {
                     const c = clienteDe(t);
+                    const est = estilistaDe(t);
                     return (
                       <div key={t.id} className={"tl-turno" + (t.id === editId ? " edit" : "")} onClick={() => empezarEdicion(t)} style={{
                         top: (ini - 600) / 60 * HPX + 1,
                         height: Math.max((fin - ini) / 60 * HPX - 3, 24),
                         left: `${lane * (100 / nL)}%`,
                         width: `calc(${100 / nL}% - 5px)`,
+                        ...(est ? { borderLeftColor: colorEst(est.id) } : {}),
                       }}>
                         <div className="tn">{c ? c.nombre : "(cliente eliminado)"}{t.recordado ? " ✓" : ""}</div>
-                        <div className="ts">{labelDe(t, servicios)}</div>
+                        <div className="ts">{labelDe(t, servicios)}{est ? ` · ${est.nombre}` : ""}</div>
                         <button className="x" onClick={(e) => { e.stopPropagation(); borrar(t.id); }} title="Borrar turno">×</button>
                       </div>
                     );
@@ -688,7 +706,12 @@ function Agenda({ datos, guardar, clienteDe }) {
                 <div className="dnum">{DIAS_LAB[i]} {new Date(d + "T12:00:00").getDate()}</div>
                 {turnosDe(d).map((t) => {
                   const c = clienteDe(t);
-                  return <div className="tmini" key={t.id}>{t.hora} {c ? c.nombre.split(" ")[0] : "?"}</div>;
+                  const est = estilistaDe(t);
+                  return (
+                    <div className="tmini" key={t.id} style={est ? { borderLeft: `3px solid ${colorEst(est.id)}` } : {}}>
+                      {t.hora} {c ? c.nombre.split(" ")[0] : "?"}{est ? ` · ${est.nombre.split(" ")[0]}` : ""}
+                    </div>
+                  );
                 })}
               </div>
             ))}
@@ -807,12 +830,15 @@ function FichaCliente({ id, datos, guardar, volver }) {
 
         <h3 style={{ margin: "20px 0 4px" }}>Turnos</h3>
         {historial.length === 0 && <div className="det">Sin turnos registrados.</div>}
-        {historial.map((t) => (
-          <div className="item" key={t.id}>
-            <div className="det">{fmtFecha(t.fecha)} · {t.hora} hs · {labelDe(t, datos.config.servicios || [])}</div>
-            {t.fecha < hoyISO() ? <span className="chip">pasado</span> : <span className="chip ok">próximo</span>}
-          </div>
-        ))}
+        {historial.map((t) => {
+          const est = (datos.config.estilistas || []).find((e) => e.id === t.estilistaId);
+          return (
+            <div className="item" key={t.id}>
+              <div className="det">{fmtFecha(t.fecha)} · {t.hora} hs · {labelDe(t, datos.config.servicios || [])}{est ? ` · ${est.nombre}` : ""}</div>
+              {t.fecha < hoyISO() ? <span className="chip">pasado</span> : <span className="chip ok">próximo</span>}
+            </div>
+          );
+        })}
 
         <button className="link" style={{ color: "#555555", marginTop: 18 }} onClick={eliminarCliente}>Eliminar cliente y sus turnos</button>
       </div>
@@ -821,19 +847,20 @@ function FichaCliente({ id, datos, guardar, volver }) {
 }
 
 /* ─── Recordatorios ─── */
-function Recordatorios({ pendientes, clienteDe, mensajeDe, enviarWsp, servicios }) {
+function Recordatorios({ pendientes, clienteDe, mensajeDe, enviarWsp, servicios, estilistas }) {
   return (
     <>
       <div className="aviso">Acá aparecen los turnos que ya se pueden recordar: a partir de las 10:00 hs del día anterior. Tocá el botón verde y se abre WhatsApp con el mensaje listo para enviar.</div>
       {pendientes.length === 0 && <div className="vacio">No hay recordatorios pendientes por ahora. 🎉</div>}
       {pendientes.map((t) => {
         const c = clienteDe(t);
+        const est = (estilistas || []).find((e) => e.id === t.estilistaId);
         return (
           <div className="card" key={t.id}>
             <div className="item" style={{ padding: 0, borderBottom: "none" }}>
               <div>
                 <div className="nom">{c ? c.nombre : "(cliente eliminado)"}</div>
-                <div className="det">{fmtFecha(t.fecha)} · {t.hora} hs · {labelDe(t, servicios)}</div>
+                <div className="det">{fmtFecha(t.fecha)} · {t.hora} hs · {labelDe(t, servicios)}{est ? ` · ${est.nombre}` : ""}</div>
               </div>
               <button className="btn wsp mini" onClick={() => enviarWsp(t)} disabled={!c || !c.telefono}>Enviar por WhatsApp</button>
             </div>
@@ -892,7 +919,9 @@ function PorAgregar({ datos, guardar, abrir }) {
 function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado }) {
   const { config } = datos;
   const servicios = config.servicios || [];
+  const estilistas = config.estilistas || [];
   const [ns, setNs] = useState({ nombre: "", min: 30 });
+  const [ne, setNe] = useState("");
   const [msgImport, setMsgImport] = useState("");
   const [url, setUrl] = useState(syncUrl || "");
   const [clave, setClave] = useState("");
@@ -930,6 +959,13 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado }) {
     if (!ns.nombre.trim()) return;
     guardarServ([...servicios, { id: uid(), nombre: ns.nombre.trim(), min: Math.max(15, +ns.min || 30) }]);
     setNs({ nombre: "", min: 30 });
+  };
+
+  const guardarEst = (lista) => guardar({ ...datos, config: { ...config, estilistas: lista } });
+  const agregarEst = () => {
+    if (!ne.trim()) return;
+    guardarEst([...estilistas, { id: uid(), nombre: ne.trim() }]);
+    setNe("");
   };
 
   return (
@@ -1015,6 +1051,22 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado }) {
             <input type="number" min={15} step={15} value={ns.min} onChange={(e) => setNs({ ...ns, min: e.target.value })} /></div>
         </div>
         <button className="btn" style={{ marginTop: 12 }} onClick={agregarServ} disabled={!ns.nombre.trim()}>Agregar servicio</button>
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginBottom: 4 }}>Estilistas</h3>
+        <div className="det" style={{ marginBottom: 10 }}>Quiénes atienden en la peluquería. Al agendar un turno vas a poder elegir cuál de ellas lo atiende.</div>
+        {estilistas.map((e) => (
+          <div className="item" key={e.id}>
+            <div className="nom">{e.nombre}</div>
+            <button className="link" onClick={() => guardarEst(estilistas.filter((x) => x.id !== e.id))}>Borrar</button>
+          </div>
+        ))}
+        <div className="fila" style={{ marginTop: 14 }}>
+          <div className="campo"><label>Nueva estilista</label>
+            <input placeholder="Nombre" value={ne} onChange={(ev) => setNe(ev.target.value)} /></div>
+        </div>
+        <button className="btn" style={{ marginTop: 12 }} onClick={agregarEst} disabled={!ne.trim()}>Agregar estilista</button>
       </div>
 
       <div className="card">
