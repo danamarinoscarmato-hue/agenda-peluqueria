@@ -126,6 +126,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--acento)}
 `;
 
 const SWATCHES = ["#141414", "#2E2E2E", "#4A4A4A", "#6B6B6B", "#8A8A8A", "#ABABAB", "#CFCFCF", "#EDEDED"];
+/* Firebase de esta peluquería precargado: sin esto, un dispositivo que abre el
+   link sin haberlo configurado antes arranca con una agenda vacía propia (y sin
+   el código de acceso, porque ese dato también vive sincronizado). */
+const SYNC_URL_DEFAULT = "https://app-delta-b0a47-default-rtdb.firebaseio.com/";
 const uid = () => Math.random().toString(36).slice(2, 9);
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 const addDias = (iso, n) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
@@ -209,8 +213,8 @@ function SalonApp() {
       } catch {}
       try {
         const u = await window.storage.get("salon-sync-url");
-        if (u) url = u.value;
-      } catch {}
+        url = u ? u.value : SYNC_URL_DEFAULT;
+      } catch { url = SYNC_URL_DEFAULT; }
       setSyncUrl(url);
       let base = local;
       if (url) {
