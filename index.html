@@ -153,6 +153,14 @@ const fmtFecha = (iso) => {
   return d.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
 };
 
+/* Firebase no guarda arrays vacíos (los borra), así que al leer datos hay que
+   reponer clientes/turnos/notas que hayan quedado ausentes por estar vacíos */
+const sanear = (d) => ({
+  ...d,
+  clientes: (d.clientes || []).map((c) => ({ ...c, notas: c.notas || [] })),
+  turnos: d.turnos || [],
+});
+
 function SalonApp() {
   const [datos, setDatos] = useState(null);
   const [tab, setTab] = useState("agenda");
@@ -172,7 +180,7 @@ function SalonApp() {
       if (!r.ok) throw new Error();
       const d = await r.json();
       setSyncEstado("ok");
-      return d && d.config ? d : null;
+      return d && d.config ? sanear(d) : null;
     } catch {
       setSyncEstado("error");
       return null;
@@ -194,7 +202,7 @@ function SalonApp() {
       let local = null, url = "";
       try {
         const r = await window.storage.get("salon-datos-v1");
-        if (r) local = JSON.parse(r.value);
+        if (r) local = sanear(JSON.parse(r.value));
       } catch {}
       try {
         const u = await window.storage.get("salon-sync-url");
