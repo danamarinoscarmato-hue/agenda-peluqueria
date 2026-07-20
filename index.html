@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Agenda Peluquería</title>
+<meta name="theme-color" content="#141414">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Peluquería">
+<link rel="manifest" href='data:application/manifest+json,{"name":"Agenda Peluquería","short_name":"Peluquería","display":"standalone","background_color":"%23F7F7F7","theme_color":"%23141414","start_url":"."}'>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body style="margin:0">
+<div id="root"></div>
+<script>
+/* Adaptador: en la versión independiente los datos se guardan en el navegador del dispositivo (localStorage) */
+window.storage = {
+  get: async (k) => { const v = localStorage.getItem(k); return v === null ? null : { key: k, value: v }; },
+  set: async (k, v) => { localStorage.setItem(k, String(v)); return { key: k, value: String(v) }; }
+};
+</script>
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef } = React;
+
+/* ─── Estilos y tipografía ─── */
+const css = `
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Karla:wght@400;500;700&display=swap');
+:root{
+  --fondo:#F7F7F7; --tarjeta:#FFFFFF; --tinta:#141414; --tinta2:#6B6B6B;
+  --acento:#141414; --acento-suave:#EFEFEF; --cobre:#8A8A8A; --salvia:#444444;
+  --linea:#E3E3E3;
+}
+*{box-sizing:border-box;margin:0}
+.app{min-height:100vh;background:var(--fondo);color:var(--tinta);font-family:'Karla',sans-serif;padding-bottom:56px}
+.wrap{max-width:880px;margin:0 auto;padding:0 16px}
+h1,h2,h3{font-family:'Fraunces',serif}
+.header{padding:26px 0 0}
+.swatches{display:flex;gap:6px;margin-bottom:14px}
+.sw{width:26px;height:12px;border-radius:3px}
+.titulo{font-size:30px;font-weight:700;letter-spacing:-.5px}
+.sub{color:var(--tinta2);margin-top:2px;font-size:14px}
+.tabs{display:flex;gap:4px;margin:20px 0 22px;border-bottom:1.5px solid var(--linea)}
+.tab{background:none;border:none;font-family:'Karla';font-weight:700;font-size:14.5px;color:var(--tinta2);
+  padding:10px 14px;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-1.5px}
+.tab.on{color:var(--acento);border-color:var(--acento)}
+.tab .n{background:var(--acento);color:#fff;border-radius:99px;font-size:11px;padding:1px 7px;margin-left:5px}
+.card{background:var(--tarjeta);border:1px solid var(--linea);border-radius:14px;padding:18px;margin-bottom:14px}
+.fila{display:flex;gap:10px;flex-wrap:wrap}
+label{font-size:12.5px;font-weight:700;color:var(--tinta2);display:block;margin-bottom:4px}
+input,select,textarea{font-family:'Karla';font-size:15px;color:var(--tinta);background:#fff;
+  border:1.5px solid var(--linea);border-radius:9px;padding:9px 11px;width:100%;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--acento)}
+.campo{flex:1;min-width:130px}
+.btn{font-family:'Karla';font-weight:700;font-size:14.5px;border:none;border-radius:9px;
+  padding:10px 16px;cursor:pointer;background:var(--acento);color:#fff}
+.btn.sec{background:var(--acento-suave);color:var(--acento)}
+.btn.mini{padding:6px 11px;font-size:13px}
+.btn.wsp{background:#141414}
+.btn:disabled{opacity:.5;cursor:default}
+.item{display:flex;justify-content:space-between;align-items:center;gap:10px;
+  padding:12px 0;border-bottom:1px solid var(--linea)}
+.item:last-child{border-bottom:none}
+.hora{font-family:'Fraunces';font-weight:700;font-size:17px;color:var(--acento);min-width:52px}
+.nom{font-weight:700}
+.det{font-size:13px;color:var(--tinta2)}
+.chip{font-size:11.5px;font-weight:700;border-radius:99px;padding:2px 9px;background:var(--acento-suave);color:var(--tinta)}
+.chip.ok{background:#141414;color:#fff}
+.vacio{text-align:center;color:var(--tinta2);padding:28px 10px;font-size:14.5px}
+.fecha-tit{font-family:'Fraunces';font-size:17px;font-weight:600;margin:18px 0 4px;text-transform:capitalize}
+.nota{background:var(--fondo);border-radius:9px;padding:9px 12px;margin-top:8px;font-size:14px}
+.nota .f{font-size:11.5px;color:var(--tinta2);font-weight:700;margin-bottom:2px}
+.link{background:none;border:none;color:var(--acento);font-weight:700;cursor:pointer;font-size:13.5px;font-family:'Karla';padding:0}
+.aviso{background:var(--acento-suave);border-radius:10px;padding:10px 14px;font-size:13.5px;color:var(--acento);margin-bottom:14px}
+.vnav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.vtit{font-family:'Fraunces',serif;font-size:17px;font-weight:600;text-transform:capitalize}
+.vsel{display:flex;background:var(--acento-suave);border-radius:9px;padding:3px;gap:2px}
+.vsel button{border:none;background:none;font-family:'Karla';font-weight:700;font-size:13px;color:var(--acento);padding:6px 12px;border-radius:7px;cursor:pointer}
+.vsel button.on{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.nav{display:flex;gap:6px;align-items:center}
+.navb{border:1.5px solid var(--linea);background:#fff;border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:15px;color:var(--tinta)}
+.scrollx{overflow-x:auto;padding-bottom:4px}
+.semana{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;min-width:460px}
+.diacol{background:#fff;border:1px solid var(--linea);border-radius:10px;padding:8px;min-height:120px;cursor:pointer}
+.diacol.hoy{border-color:var(--acento);border-width:2px}
+.dnum{font-size:12px;font-weight:700;color:var(--tinta2);margin-bottom:6px;text-transform:capitalize}
+.diacol.hoy .dnum{color:var(--acento)}
+.tmini{font-size:12px;background:var(--acento-suave);color:var(--acento);border-radius:6px;padding:3px 6px;margin-bottom:4px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mes{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+.mcab{font-size:11.5px;font-weight:700;color:var(--tinta2);text-align:center;padding:4px 0;text-transform:uppercase}
+.mcel{background:#fff;border:1px solid var(--linea);border-radius:9px;min-height:64px;padding:6px;cursor:pointer}
+.mcel.off{background:transparent;border:none;cursor:default}
+.mcel.hoy{border-color:var(--acento);border-width:2px}
+.mnum{font-size:12.5px;font-weight:700}
+.mcnt{margin-top:4px;font-size:11px;font-weight:700;background:var(--acento);color:#fff;border-radius:99px;padding:1px 7px;display:inline-block}
+.tl{position:relative}
+.tl-linea{position:absolute;left:0;right:0;border-top:1px solid var(--linea)}
+.tl-linea span{position:absolute;top:-9px;left:0;font-size:11px;font-weight:700;color:var(--tinta2);background:var(--tarjeta);padding-right:6px}
+.tl-media{position:absolute;left:52px;right:0;border-top:1px dashed var(--linea);opacity:.6}
+.tl-area{position:absolute;left:52px;right:0;top:0;bottom:0}
+.tl-turno{position:absolute;background:var(--acento-suave);border-left:3px solid var(--acento);border-radius:8px;padding:3px 20px 3px 8px;overflow:hidden;font-size:12.5px;line-height:1.2}
+.tl-turno .tn{font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-turno .ts{color:var(--tinta2);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-turno .x{position:absolute;top:2px;right:4px;background:none;border:none;color:var(--acento);cursor:pointer;font-weight:700;font-size:14px;font-family:'Karla'}
+.servchips{display:flex;flex-wrap:wrap;gap:7px}
+.schip{border:1.5px solid var(--linea);background:#fff;border-radius:99px;padding:7px 13px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Karla';color:var(--tinta2)}
+.schip.on{background:var(--acento);border-color:var(--acento);color:#fff}
+.durinfo{font-size:13.5px;color:var(--acento);margin-top:10px;font-weight:700}
+.tilde{width:46px;height:46px;border-radius:50%;border:2px solid var(--tinta);background:#fff;color:var(--tinta);font-size:20px;font-weight:700;cursor:pointer;flex-shrink:0;font-family:'Karla'}
+.tilde:hover{background:var(--acento-suave)}
+.tilde:disabled{opacity:.4;cursor:default}
+.tl-turno{cursor:pointer}
+.tl-turno.edit{outline:2px solid var(--tinta)}
+.selcli{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1.5px solid var(--acento);background:var(--acento-suave);border-radius:9px;padding:9px 11px}
+.sugerencias{position:absolute;left:0;right:0;top:100%;z-index:20;background:#fff;border:1.5px solid var(--linea);border-radius:9px;margin-top:4px;box-shadow:0 6px 18px rgba(51,34,46,.14);overflow:hidden}
+.sug{display:block;width:100%;text-align:left;background:none;border:none;border-bottom:1px solid var(--linea);padding:10px 12px;font-family:'Karla';font-size:14.5px;font-weight:700;color:var(--tinta);cursor:pointer}
+.sug:last-child{border-bottom:none}
+.sug:hover{background:var(--acento-suave)}
+.sug .det{font-weight:400}
+@media(max-width:560px){.hora{min-width:auto}.titulo{font-size:24px}.mcel{min-height:48px;padding:4px}}
+`;
+
+const SWATCHES = ["#141414", "#2E2E2E", "#4A4A4A", "#6B6B6B", "#8A8A8A", "#ABABAB", "#CFCFCF", "#EDEDED"];
+const uid = () => Math.random().toString(36).slice(2, 9);
+const hoyISO = () => new Date().toISOString().slice(0, 10);
+const addDias = (iso, n) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const lunesDe = (iso) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); };
+const cerrado = (iso) => [0, 1].includes(new Date(iso + "T12:00:00").getDay());
+const HORAS = Array.from({ length: 18 }, (_, i) => `${String(10 + Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"}`);
+const SERV_DEF = [
+  { id: "corte", nombre: "Corte", min: 30 },
+  { id: "brushing", nombre: "Brushing", min: 30 },
+  { id: "color", nombre: "Color", min: 90 },
+  { id: "mechas", nombre: "Mechas / reflejos", min: 120 },
+  { id: "trat", nombre: "Tratamiento", min: 45 },
+  { id: "peinado", nombre: "Peinado", min: 45 },
+];
+const aMin = (h) => +h.slice(0, 2) * 60 + +h.slice(3, 5);
+const aHora = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+const servDe = (t, lista) => (t.servicios || []).map((id) => lista.find((s) => s.id === id)).filter(Boolean);
+const durDe = (t, lista) => { const s = servDe(t, lista); return s.length ? s.reduce((a, x) => a + x.min, 0) : 30; };
+const labelDe = (t, lista) => { const s = servDe(t, lista); return s.length ? s.map((x) => x.nombre).join(" + ") : (t.servicio || "—"); };
+const nombreDup = (nombre, clientes, exceptoId) => {
+  const n = nombre.trim().toLowerCase();
+  return n !== "" && clientes.some((c) => c.id !== exceptoId && c.nombre.trim().toLowerCase() === n);
+};
+
+const fmtFecha = (iso) => {
+  const d = new Date(iso + "T12:00:00");
+  return d.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+};
+
+function SalonApp() {
+  const [datos, setDatos] = useState(null);
+  const [tab, setTab] = useState("agenda");
+  const [clienteAbierto, setClienteAbierto] = useState(null);
+  const [syncUrl, setSyncUrl] = useState("");
+  const [syncEstado, setSyncEstado] = useState("");
+
+  const normalizar = (u) => {
+    let x = (u || "").trim().replace(/\/+$/, "");
+    if (x && !x.endsWith(".json")) x += ".json";
+    return x;
+  };
+
+  const traerRemoto = async (url) => {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error();
+      const d = await r.json();
+      setSyncEstado("ok");
+      return d && d.config ? d : null;
+    } catch {
+      setSyncEstado("error");
+      return null;
+    }
+  };
+
+  const subirRemoto = async (url, d) => {
+    try {
+      const r = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(d) });
+      setSyncEstado(r.ok ? "ok" : "error");
+    } catch {
+      setSyncEstado("error");
+    }
+  };
+
+  /* carga inicial: local + remoto, gana el más reciente */
+  useEffect(() => {
+    (async () => {
+      let local = null, url = "";
+      try {
+        const r = await window.storage.get("salon-datos-v1");
+        if (r) local = JSON.parse(r.value);
+      } catch {}
+      try {
+        const u = await window.storage.get("salon-sync-url");
+        if (u) url = u.value;
+      } catch {}
+      setSyncUrl(url);
+      let base = local;
+      if (url) {
+        const remoto = await traerRemoto(normalizar(url));
+        if (remoto && (!base || (remoto.mod || 0) >= (base.mod || 0))) base = remoto;
+      }
+      if (!base) base = { clientes: [], turnos: [], config: { horas: 24, salon: "Mi peluquería", servicios: SERV_DEF } };
+      if (!base.config.servicios) base.config.servicios = SERV_DEF;
+      setDatos(base);
+      try { await window.storage.set("salon-datos-v1", JSON.stringify(base)); } catch {}
+    })();
+  }, []);
+
+  const guardar = async (nuevo) => {
+    nuevo = { ...nuevo, mod: Date.now() };
+    setDatos(nuevo);
+    try { await window.storage.set("salon-datos-v1", JSON.stringify(nuevo)); } catch (e) { console.error(e); }
+    if (syncUrl.trim()) subirRemoto(normalizar(syncUrl), nuevo);
+  };
+
+  const cambiarSyncUrl = async (u) => {
+    setSyncUrl(u);
+    try { await window.storage.set("salon-sync-url", u); } catch {}
+    if (!u.trim()) { setSyncEstado(""); return; }
+    const remoto = await traerRemoto(normalizar(u));
+    if (remoto && (remoto.mod || 0) > ((datos && datos.mod) || 0)) {
+      if (!remoto.config.servicios) remoto.config.servicios = SERV_DEF;
+      setDatos(remoto);
+      try { await window.storage.set("salon-datos-v1", JSON.stringify(remoto)); } catch {}
+    } else if (datos) {
+      subirRemoto(normalizar(u), datos);
+    }
+  };
+
+  /* al volver a la app, traer lo último */
+  useEffect(() => {
+    const alVolver = async () => {
+      if (document.visibilityState !== "visible" || !syncUrl.trim()) return;
+      const remoto = await traerRemoto(normalizar(syncUrl));
+      if (!remoto) return;
+      setDatos((act) => {
+        if ((remoto.mod || 0) > ((act && act.mod) || 0)) {
+          if (!remoto.config.servicios) remoto.config.servicios = SERV_DEF;
+          window.storage.set("salon-datos-v1", JSON.stringify(remoto)).catch(() => {});
+          return remoto;
+        }
+        return act;
+      });
+    };
+    document.addEventListener("visibilitychange", alVolver);
+    return () => document.removeEventListener("visibilitychange", alVolver);
+  }, [syncUrl]);
+
+  if (!datos) return <div className="app"><style>{css}</style><div className="vacio">Cargando…</div></div>;
+
+  const { clientes, turnos, config } = datos;
+
+  /* ─── recordatorios pendientes ─── */
+  const ahora = new Date();
+  const limite = new Date(ahora.getTime() + config.horas * 3600 * 1000);
+  const pendientes = turnos.filter((t) => {
+    const f = new Date(t.fecha + "T" + (t.hora || "09:00"));
+    return f > ahora && f <= limite && !t.recordado;
+  }).sort((a, b) => (a.fecha + a.hora).localeCompare(b.fecha + b.hora));
+
+  const clienteDe = (t) => clientes.find((c) => c.id === t.clienteId);
+  const provisionales = clientes.filter((c) => c.provisional);
+
+  const mensajeDe = (t) => {
+    const c = clienteDe(t);
+    const serv = labelDe(t, config.servicios || []);
+    return `¡Hola ${c ? c.nombre.split(" ")[0] : ""}! 💇 Te recordamos tu turno en ${config.salon} el ${fmtFecha(t.fecha)} a las ${t.hora} hs${serv !== "—" ? ` para ${serv.toLowerCase()}` : ""}. Si necesitás cambiarlo, avisanos. ¡Te esperamos!`;
+  };
+
+  const enviarWsp = (t) => {
+    const c = clienteDe(t);
+    if (!c) return;
+    const tel = c.telefono.replace(/\D/g, "");
+    const nro = tel.startsWith("54") ? tel : "549" + tel;
+    window.open(`https://wa.me/${nro}?text=${encodeURIComponent(mensajeDe(t))}`, "_blank");
+    guardar({ ...datos, turnos: turnos.map((x) => x.id === t.id ? { ...x, recordado: true } : x) });
+  };
+
+  /* ─── vistas ─── */
+  return (
+    <div className="app">
+      <style>{css}</style>
+      <div className="wrap">
+        <div className="header">
+          <div className="swatches">{SWATCHES.map((c) => <div key={c} className="sw" style={{ background: c }} />)}</div>
+          <h1 className="titulo">{config.salon}</h1>
+          <p className="sub">Agenda · clientes · recordatorios</p>
+        </div>
+
+        <div className="tabs">
+          {[["agenda", "Agenda"], ["clientes", "Clientes"], ["nuevos", "Por agregar"], ["record", "Recordatorios"], ["config", "Ajustes"]].map(([k, l]) => {
+            const n = k === "record" ? pendientes.length : k === "nuevos" ? provisionales.length : 0;
+            return (
+              <button key={k} className={"tab" + (tab === k ? " on" : "")} onClick={() => { setTab(k); setClienteAbierto(null); }}>
+                {l}{n > 0 && <span className="n">{n}</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {tab === "agenda" && <Agenda datos={datos} guardar={guardar} clienteDe={clienteDe} />}
+        {tab === "clientes" && (clienteAbierto
+          ? <FichaCliente id={clienteAbierto} datos={datos} guardar={guardar} volver={() => setClienteAbierto(null)} />
+          : <Clientes datos={datos} guardar={guardar} abrir={setClienteAbierto} />)}
+        {tab === "nuevos" && <PorAgregar datos={datos} guardar={guardar} abrir={(id) => { setTab("clientes"); setClienteAbierto(id); }} />}
+        {tab === "record" && <Recordatorios pendientes={pendientes} clienteDe={clienteDe} mensajeDe={mensajeDe} enviarWsp={enviarWsp} horas={config.horas} servicios={config.servicios || []} />}
+        {tab === "config" && <Ajustes datos={datos} guardar={guardar} syncUrl={syncUrl} cambiarSyncUrl={cambiarSyncUrl} syncEstado={syncEstado} />}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Agenda ─── */
+const DIAS_LAB = ["mar", "mié", "jue", "vie", "sáb"];
+
+function Agenda({ datos, guardar, clienteDe }) {
+  const { clientes, turnos } = datos;
+  const servicios = datos.config.servicios || [];
+  const [vista, setVista] = useState("dia");
+  const [fechaSel, setFechaSel] = useState(hoyISO());
+  const [f, setF] = useState({ clienteId: "", hora: "10:00", servicios: [], modo: "base", nombreNuevo: "", telNuevo: "", busca: "", fecha: hoyISO() });
+  const [editId, setEditId] = useState(null);
+  const formRef = useRef(null);
+
+  const empezarEdicion = (t) => {
+    setEditId(t.id);
+    setF({ clienteId: t.clienteId, hora: t.hora, servicios: t.servicios || [], modo: "base", nombreNuevo: "", telNuevo: "", busca: "", fecha: t.fecha });
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
+  const cancelarEdicion = () => {
+    setEditId(null);
+    setF({ ...f, clienteId: "", servicios: [], busca: "" });
+  };
+  const guardarEdicion = () => {
+    const t0 = turnos.find((t) => t.id === editId);
+    if (!t0 || !f.clienteId || f.servicios.length === 0) return;
+    const cambioHorario = t0.fecha !== f.fecha || t0.hora !== f.hora;
+    guardar({
+      ...datos,
+      turnos: turnos.map((t) => t.id === editId
+        ? { ...t, clienteId: f.clienteId, hora: f.hora, servicios: f.servicios, fecha: f.fecha, recordado: cambioHorario ? false : t.recordado }
+        : t),
+    });
+    if (f.fecha !== fechaSel) setFechaSel(f.fecha);
+    cancelarEdicion();
+  };
+
+  const toggleServ = (id) => setF({
+    ...f,
+    servicios: f.servicios.includes(id) ? f.servicios.filter((x) => x !== id) : [...f.servicios, id],
+  });
+  const durSel = f.servicios.reduce((a, id) => a + (servicios.find((s) => s.id === id)?.min || 0), 0);
+
+  const turnosDe = (fecha) => turnos.filter((t) => t.fecha === fecha)
+    .sort((a, b) => a.hora.localeCompare(b.hora));
+
+  const agregar = () => {
+    if (!f.hora || f.servicios.length === 0) return;
+    const nuevoTurno = (clienteId) => ({ clienteId, hora: f.hora, servicios: f.servicios, fecha: fechaSel, id: uid(), recordado: false });
+    if (f.modo === "nuevo") {
+      if (!f.nombreNuevo.trim()) return;
+      const nc = { id: uid(), nombre: f.nombreNuevo.trim(), telefono: f.telNuevo.trim(), notas: [], provisional: true };
+      guardar({ ...datos, clientes: [...clientes, nc], turnos: [...turnos, nuevoTurno(nc.id)] });
+    } else {
+      if (!f.clienteId) return;
+      guardar({ ...datos, turnos: [...turnos, nuevoTurno(f.clienteId)] });
+    }
+    setF({ ...f, servicios: [], nombreNuevo: "", telNuevo: "" });
+  };
+  const borrar = (id) => guardar({ ...datos, turnos: turnos.filter((t) => t.id !== id) });
+
+  const mover = (dir) => {
+    if (vista === "mes") {
+      const d = new Date(fechaSel + "T12:00:00");
+      d.setDate(1); d.setMonth(d.getMonth() + dir);
+      setFechaSel(d.toISOString().slice(0, 10));
+    } else if (vista === "semana") setFechaSel(addDias(fechaSel, dir * 7));
+    else { let d = addDias(fechaSel, dir); while (cerrado(d)) d = addDias(d, dir); setFechaSel(d); }
+  };
+
+  const lunes = lunesDe(fechaSel);
+  const diasSemana = Array.from({ length: 5 }, (_, i) => addDias(lunes, i + 1));
+  const dSel = new Date(fechaSel + "T12:00:00");
+
+  const titulo = vista === "dia" ? fmtFecha(fechaSel)
+    : vista === "semana" ? `Semana del ${new Date(addDias(lunes, 1) + "T12:00:00").getDate()} al ${new Date(addDias(lunes, 5) + "T12:00:00").getDate()} de ${dSel.toLocaleDateString("es-AR", { month: "long" })}`
+    : dSel.toLocaleDateString("es-AR", { month: "long", year: "numeric" });
+
+  /* celdas del mes */
+  const diasEnMes = new Date(dSel.getFullYear(), dSel.getMonth() + 1, 0).getDate();
+  const abiertos = Array.from({ length: diasEnMes }, (_, i) => {
+    const d = new Date(dSel.getFullYear(), dSel.getMonth(), i + 1, 12);
+    return d.toISOString().slice(0, 10);
+  }).filter((d) => !cerrado(d));
+  const offset = (new Date(abiertos[0] + "T12:00:00").getDay() + 5) % 7;
+  const celdas = [...Array(offset).fill(null), ...abiertos];
+
+  const irADia = (fecha) => { setFechaSel(fecha); setVista("dia"); };
+
+  return (
+    <>
+      <div className="vnav">
+        <div className="vsel">
+          {[["dia", "Día"], ["semana", "Semana"], ["mes", "Mes"]].map(([k, l]) => (
+            <button key={k} className={vista === k ? "on" : ""} onClick={() => setVista(k)}>{l}</button>
+          ))}
+        </div>
+        <div className="nav">
+          <button className="navb" onClick={() => mover(-1)}>‹</button>
+          <button className="btn sec mini" onClick={() => setFechaSel(hoyISO())}>Hoy</button>
+          <button className="navb" onClick={() => mover(1)}>›</button>
+        </div>
+      </div>
+      <div className="vtit" style={{ marginBottom: 12 }}>{titulo}</div>
+
+      {vista === "dia" && cerrado(fechaSel) && (
+        <div className="card"><div className="vacio">La peluquería está cerrada los domingos y lunes.</div></div>
+      )}
+      {vista === "dia" && !cerrado(fechaSel) && (() => {
+        const HPX = 64;
+        const dia = turnosDe(fechaSel);
+        const lanes = [];
+        const conPos = dia.map((t) => {
+          const ini = aMin(t.hora), fin = ini + durDe(t, servicios);
+          let lane = lanes.findIndex((e) => e <= ini);
+          if (lane === -1) { lane = lanes.length; lanes.push(fin); } else lanes[lane] = fin;
+          return { t, ini, fin, lane };
+        });
+        const nL = Math.max(1, lanes.length);
+        return (
+          <>
+            <div className="card" ref={formRef}>
+              <h3 style={{ marginBottom: 12 }}>{editId ? "Modificar turno" : "Nuevo turno para este día"}</h3>
+              {!editId && (
+                <div className="vsel" style={{ marginBottom: 12, width: "fit-content" }}>
+                  <button className={f.modo !== "nuevo" ? "on" : ""} onClick={() => setF({ ...f, modo: "base" })}>De la base</button>
+                  <button className={f.modo === "nuevo" ? "on" : ""} onClick={() => setF({ ...f, modo: "nuevo" })}>Cliente nuevo</button>
+                </div>
+              )}
+              {f.modo !== "nuevo" && clientes.length === 0 && <div className="aviso">Todavía no hay clientes en la base — tocá "Cliente nuevo" para anotarlo igual.</div>}
+              <div className="fila" style={{ marginBottom: 12 }}>
+                {f.modo === "nuevo" && !editId ? (
+                  <>
+                    <div className="campo"><label>Nombre</label>
+                      <input placeholder="Nombre del cliente" value={f.nombreNuevo} onChange={(e) => setF({ ...f, nombreNuevo: e.target.value })} /></div>
+                    <div className="campo"><label>Teléfono (opcional, para el recordatorio)</label>
+                      <input placeholder="11 5555 5555" value={f.telNuevo} onChange={(e) => setF({ ...f, telNuevo: e.target.value })} /></div>
+                  </>
+                ) : (() => {
+                  const clienteSel = clientes.find((c) => c.id === f.clienteId);
+                  const coincidencias = f.busca.trim()
+                    ? clientes.filter((c) => c.nombre.toLowerCase().includes(f.busca.trim().toLowerCase())).slice(0, 6)
+                    : [];
+                  return (
+                    <div className="campo" style={{ position: "relative" }}>
+                      <label>Cliente (escribí para buscar)</label>
+                      {clienteSel ? (
+                        <div className="selcli">
+                          <span className="nom">{clienteSel.nombre}{clienteSel.frecuente ? " ★" : ""}</span>
+                          <button className="link" onClick={() => setF({ ...f, clienteId: "", busca: "" })}>cambiar</button>
+                        </div>
+                      ) : (
+                        <>
+                          <input placeholder="Nombre del cliente…" value={f.busca}
+                            onChange={(e) => setF({ ...f, busca: e.target.value, clienteId: "" })} />
+                          {coincidencias.length > 0 && (
+                            <div className="sugerencias">
+                              {coincidencias.map((c) => (
+                                <button key={c.id} className="sug" onClick={() => setF({ ...f, clienteId: c.id, busca: "" })}>
+                                  {c.nombre}{c.frecuente ? " ★" : ""} <span className="det">{c.provisional ? "· por agregar" : c.telefono ? "· " + c.telefono : ""}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {f.busca.trim() !== "" && coincidencias.length === 0 && (
+                            <div className="det" style={{ marginTop: 6 }}>No aparece en la base — tocá "Cliente nuevo" para anotarlo igual.</div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+                {editId && (
+                  <div className="campo"><label>Fecha</label>
+                    <input type="date" value={f.fecha} onChange={(e) => setF({ ...f, fecha: e.target.value })} /></div>
+                )}
+                <div className="campo"><label>Hora de inicio</label>
+                  <select value={f.hora} onChange={(e) => setF({ ...f, hora: e.target.value })}>
+                    {HORAS.map((h) => <option key={h} value={h}>{h}</option>)}
+                  </select></div>
+              </div>
+              {f.modo === "nuevo" && nombreDup(f.nombreNuevo, clientes) && (
+                <div className="aviso">⚠️ Ya existe "{f.nombreNuevo.trim()}" entre tus clientes. Si es la misma persona, elegila en "De la base" para no duplicarla.</div>
+              )}
+              <label>Servicios (tocá para elegir uno o más)</label>
+              <div className="servchips">
+                {servicios.map((s) => (
+                  <button key={s.id} className={"schip" + (f.servicios.includes(s.id) ? " on" : "")}
+                    onClick={() => toggleServ(s.id)}>{s.nombre} · {s.min}′</button>
+                ))}
+              </div>
+              {durSel > 0 && (
+                <div className="durinfo">
+                  Ocupa {durSel >= 60 ? `${Math.floor(durSel / 60)} h ${durSel % 60 ? durSel % 60 + " min" : ""}` : `${durSel} min`} — de {f.hora} a {aHora(aMin(f.hora) + durSel)} hs
+                  {aMin(f.hora) + durSel > 19 * 60 && " ⚠️ termina después del cierre"}
+                </div>
+              )}
+              {editId ? (
+                <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                  <button className="btn" onClick={guardarEdicion}
+                    disabled={!f.clienteId || f.servicios.length === 0 || cerrado(f.fecha)}>Guardar cambios</button>
+                  <button className="btn sec" onClick={cancelarEdicion}>Cancelar</button>
+                </div>
+              ) : (
+                <button className="btn" style={{ marginTop: 12 }} onClick={agregar}
+                  disabled={f.servicios.length === 0 || (f.modo === "nuevo" ? !f.nombreNuevo.trim() : !f.clienteId)}>Agendar turno</button>
+              )}
+              {editId && cerrado(f.fecha) && <div className="aviso" style={{ marginTop: 10, marginBottom: 0 }}>⚠️ Esa fecha cae domingo o lunes, cuando el local está cerrado.</div>}
+            </div>
+
+            <div className="card" style={{ paddingRight: 10 }}>
+              <div className="tl" style={{ height: 9 * HPX + 14 }}>
+                {Array.from({ length: 10 }, (_, i) => 10 + i).map((h) => (
+                  <div className="tl-linea" key={h} style={{ top: (h - 10) * HPX + 10 }}>
+                    <span>{h}:00</span>
+                  </div>
+                ))}
+                {Array.from({ length: 9 }, (_, i) => (
+                  <div className="tl-media" key={i} style={{ top: i * HPX + HPX / 2 + 10 }} />
+                ))}
+                <div className="tl-area" style={{ top: 10 }}>
+                  {conPos.map(({ t, ini, fin, lane }) => {
+                    const c = clienteDe(t);
+                    return (
+                      <div key={t.id} className={"tl-turno" + (t.id === editId ? " edit" : "")} onClick={() => empezarEdicion(t)} style={{
+                        top: (ini - 600) / 60 * HPX + 1,
+                        height: Math.max((fin - ini) / 60 * HPX - 3, 24),
+                        left: `${lane * (100 / nL)}%`,
+                        width: `calc(${100 / nL}% - 5px)`,
+                      }}>
+                        <div className="tn">{c ? c.nombre : "(cliente eliminado)"}{t.recordado ? " ✓" : ""}</div>
+                        <div className="ts">{labelDe(t, servicios)}</div>
+                        <button className="x" onClick={(e) => { e.stopPropagation(); borrar(t.id); }} title="Borrar turno">×</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              {dia.length === 0 && <div className="vacio" style={{ paddingTop: 0 }}>Sin turnos este día.</div>}
+            </div>
+          </>
+        );
+      })()}
+
+      {vista === "semana" && (
+        <div className="scrollx">
+          <div className="semana">
+            {diasSemana.map((d, i) => (
+              <div key={d} className={"diacol" + (d === hoyISO() ? " hoy" : "")} onClick={() => irADia(d)}>
+                <div className="dnum">{DIAS_LAB[i]} {new Date(d + "T12:00:00").getDate()}</div>
+                {turnosDe(d).map((t) => {
+                  const c = clienteDe(t);
+                  return <div className="tmini" key={t.id}>{t.hora} {c ? c.nombre.split(" ")[0] : "?"}</div>;
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {vista === "mes" && (
+        <div className="mes">
+          {DIAS_LAB.map((d) => <div className="mcab" key={d}>{d}</div>)}
+          {celdas.map((d, i) => d === null
+            ? <div className="mcel off" key={"v" + i} />
+            : (
+              <div key={d} className={"mcel" + (d === hoyISO() ? " hoy" : "")} onClick={() => irADia(d)}>
+                <div className="mnum">{new Date(d + "T12:00:00").getDate()}</div>
+                {turnosDe(d).length > 0 && <span className="mcnt">{turnosDe(d).length}</span>}
+              </div>
+            ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ─── Clientes ─── */
+function Clientes({ datos, guardar, abrir }) {
+  const { clientes } = datos;
+  const [f, setF] = useState({ nombre: "", telefono: "" });
+  const [busca, setBusca] = useState("");
+
+  const agregar = () => {
+    if (!f.nombre.trim()) return;
+    guardar({ ...datos, clientes: [...clientes, { ...f, id: uid(), notas: [], provisional: !f.telefono.trim() }] });
+    setF({ nombre: "", telefono: "" });
+  };
+
+  const lista = clientes.filter((c) => c.nombre.toLowerCase().includes(busca.toLowerCase()))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+  return (
+    <>
+      <div className="card">
+        <h3 style={{ marginBottom: 12 }}>Nuevo cliente</h3>
+        <div className="fila">
+          <div className="campo"><label>Nombre y apellido</label>
+            <input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} /></div>
+          <div className="campo"><label>Teléfono (con código de área, sin 0 ni 15)</label>
+            <input placeholder="11 5555 5555" value={f.telefono} onChange={(e) => setF({ ...f, telefono: e.target.value })} /></div>
+        </div>
+        {nombreDup(f.nombre, clientes) && (
+          <div className="aviso" style={{ marginTop: 12, marginBottom: 0 }}>⚠️ Ya existe un cliente llamado "{f.nombre.trim()}". Buscalo en la lista antes de guardarlo de nuevo.</div>
+        )}
+        {f.nombre.trim() !== "" && f.telefono.trim() === "" && (
+          <div className="aviso" style={{ marginTop: 12, marginBottom: 0 }}>Sin teléfono, este cliente va a quedar en "Por agregar" hasta que completes su número.</div>
+        )}
+        <button className="btn" style={{ marginTop: 12 }} onClick={agregar} disabled={!f.nombre.trim()}>Guardar cliente</button>
+      </div>
+
+      <div className="card">
+        <input placeholder="Buscar cliente…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ marginBottom: 6 }} />
+        {lista.length === 0 && <div className="vacio">Sin clientes por ahora.</div>}
+        {lista.map((c) => (
+          <div className="item" key={c.id}>
+            <div>
+              <div className="nom">{c.nombre}{c.frecuente && <span className="chip ok" style={{ marginLeft: 8 }}>Frecuente</span>}{c.provisional && <span className="chip" style={{ marginLeft: 8 }}>por completar</span>}</div>
+              <div className="det">{c.telefono || "sin teléfono"} · {c.notas.length} nota{c.notas.length !== 1 ? "s" : ""}</div>
+            </div>
+            <button className="btn sec mini" onClick={() => abrir(c.id)}>Ver ficha</button>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+/* ─── Ficha individual ─── */
+function FichaCliente({ id, datos, guardar, volver }) {
+  const c = datos.clientes.find((x) => x.id === id);
+  const [nota, setNota] = useState("");
+  if (!c) return null;
+
+  const historial = datos.turnos.filter((t) => t.clienteId === id)
+    .sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
+
+  const agregarNota = () => {
+    if (!nota.trim()) return;
+    const nuevas = [{ f: hoyISO(), texto: nota.trim() }, ...c.notas];
+    guardar({ ...datos, clientes: datos.clientes.map((x) => x.id === id ? { ...x, notas: nuevas } : x) });
+    setNota("");
+  };
+  const borrarNota = (i) => {
+    guardar({ ...datos, clientes: datos.clientes.map((x) => x.id === id ? { ...x, notas: c.notas.filter((_, j) => j !== i) } : x) });
+  };
+  const eliminarCliente = () => {
+    guardar({ ...datos, clientes: datos.clientes.filter((x) => x.id !== id), turnos: datos.turnos.filter((t) => t.clienteId !== id) });
+    volver();
+  };
+
+  return (
+    <>
+      <button className="link" onClick={volver}>← Volver a clientes</button>
+      <div className="card" style={{ marginTop: 12 }}>
+        <h2>{c.nombre}{c.frecuente && <span className="chip ok" style={{ marginLeft: 10, verticalAlign: "middle" }}>Frecuente</span>}</h2>
+        <div className="det" style={{ marginTop: 4 }}>{c.telefono || "sin teléfono"}</div>
+
+        <h3 style={{ margin: "18px 0 8px" }}>Notas</h3>
+        <textarea rows={2} placeholder="Ej: fórmula 7.3 + 6% · 30 min · le gustó con reflejos"
+          value={nota} onChange={(e) => setNota(e.target.value)} />
+        <button className="btn mini" style={{ marginTop: 8 }} onClick={agregarNota} disabled={!nota.trim()}>Agregar nota</button>
+        {c.notas.map((n, i) => (
+          <div className="nota" key={i}>
+            <div className="f">{fmtFecha(n.f)} · <button className="link" onClick={() => borrarNota(i)}>borrar</button></div>
+            {n.texto}
+          </div>
+        ))}
+
+        <h3 style={{ margin: "20px 0 4px" }}>Turnos</h3>
+        {historial.length === 0 && <div className="det">Sin turnos registrados.</div>}
+        {historial.map((t) => (
+          <div className="item" key={t.id}>
+            <div className="det">{fmtFecha(t.fecha)} · {t.hora} hs · {labelDe(t, datos.config.servicios || [])}</div>
+            {t.fecha < hoyISO() ? <span className="chip">pasado</span> : <span className="chip ok">próximo</span>}
+          </div>
+        ))}
+
+        <button className="link" style={{ color: "#555555", marginTop: 18 }} onClick={eliminarCliente}>Eliminar cliente y sus turnos</button>
+      </div>
+    </>
+  );
+}
+
+/* ─── Recordatorios ─── */
+function Recordatorios({ pendientes, clienteDe, mensajeDe, enviarWsp, horas, servicios }) {
+  return (
+    <>
+      <div className="aviso">Acá aparecen los turnos de las próximas {horas} horas que todavía no recibieron recordatorio. Tocá el botón verde y se abre WhatsApp con el mensaje listo para enviar.</div>
+      {pendientes.length === 0 && <div className="vacio">No hay recordatorios pendientes por ahora. 🎉</div>}
+      {pendientes.map((t) => {
+        const c = clienteDe(t);
+        return (
+          <div className="card" key={t.id}>
+            <div className="item" style={{ padding: 0, borderBottom: "none" }}>
+              <div>
+                <div className="nom">{c ? c.nombre : "(cliente eliminado)"}</div>
+                <div className="det">{fmtFecha(t.fecha)} · {t.hora} hs · {labelDe(t, servicios)}</div>
+              </div>
+              <button className="btn wsp mini" onClick={() => enviarWsp(t)} disabled={!c || !c.telefono}>Enviar por WhatsApp</button>
+            </div>
+            <div className="nota" style={{ marginTop: 12 }}>{mensajeDe(t)}</div>
+            {c && !c.telefono && <div className="det" style={{ marginTop: 6 }}>Este cliente no tiene teléfono cargado.</div>}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+/* ─── Clientes por agregar ─── */
+function PorAgregar({ datos, guardar, abrir }) {
+  const provisionales = datos.clientes.filter((c) => c.provisional);
+  const editar = (id, campo, valor) => guardar({ ...datos, clientes: datos.clientes.map((c) => c.id === id ? { ...c, [campo]: valor } : c) });
+  const confirmar = (id, frecuente = false) => guardar({ ...datos, clientes: datos.clientes.map((c) => c.id === id ? { ...c, provisional: false, frecuente: frecuente || c.frecuente } : c) });
+  const descartar = (id) => guardar({ ...datos, clientes: datos.clientes.filter((c) => c.id !== id), turnos: datos.turnos.filter((t) => t.clienteId !== id) });
+
+  return (
+    <>
+      <div className="aviso">Clientes anotados al vuelo desde la agenda o guardados sin teléfono. Para pasar a la base hacen falta <b>nombre y teléfono</b>: si es un <b>cliente frecuente</b>, tocá el tilde ✓ y pasa directo; si es un <b>cliente nuevo</b>, agregalo manualmente.</div>
+      {provisionales.length === 0 && <div className="vacio">No hay clientes pendientes de agregar. 🎉</div>}
+      {provisionales.map((c) => (
+        <div className="card" key={c.id}>
+          <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+            <div style={{ flex: 1 }}>
+              <div className="fila">
+                <div className="campo"><label>Nombre y apellido</label>
+                  <input value={c.nombre} onChange={(e) => editar(c.id, "nombre", e.target.value)} /></div>
+                <div className="campo"><label>Teléfono (con código de área, sin 0 ni 15)</label>
+                  <input placeholder="11 5555 5555" value={c.telefono} onChange={(e) => editar(c.id, "telefono", e.target.value)} /></div>
+              </div>
+              {nombreDup(c.nombre, datos.clientes, c.id) && (
+                <div className="aviso" style={{ marginTop: 10, marginBottom: 0 }}>⚠️ Ya hay otro cliente con este nombre en la base. Fijate si no es la misma persona antes de agregarlo.</div>
+              )}
+              {(c.telefono || "").trim() === "" && (
+                <div className="det" style={{ marginTop: 8 }}>Falta el teléfono para poder pasarlo a la base.</div>
+              )}
+              <div style={{ display: "flex", gap: 12, marginTop: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <button className="btn mini" onClick={() => confirmar(c.id)} disabled={!c.nombre.trim() || !(c.telefono || "").trim()}>Agregar a la base</button>
+                <button className="btn sec mini" onClick={() => abrir(c.id)}>Ver ficha</button>
+                <button className="link" style={{ color: "#555555" }} onClick={() => descartar(c.id)}>Descartar (borra también sus turnos)</button>
+              </div>
+            </div>
+            <button className="tilde" onClick={() => confirmar(c.id, true)} disabled={!c.nombre.trim() || !(c.telefono || "").trim()}
+              title="Cliente frecuente: agregar directo a la base">✓</button>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/* ─── Ajustes ─── */
+function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado }) {
+  const { config } = datos;
+  const servicios = config.servicios || [];
+  const [ns, setNs] = useState({ nombre: "", min: 30 });
+  const [msgImport, setMsgImport] = useState("");
+  const [url, setUrl] = useState(syncUrl || "");
+
+  const exportar = () => {
+    const blob = new Blob([JSON.stringify(datos, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `respaldo-peluqueria-${hoyISO()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const importar = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const d = JSON.parse(reader.result);
+        if (!Array.isArray(d.clientes) || !Array.isArray(d.turnos) || !d.config) throw new Error();
+        guardar(d);
+        setMsgImport("✓ Copia restaurada correctamente");
+      } catch {
+        setMsgImport("⚠️ Ese archivo no parece un respaldo válido de la app.");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const guardarServ = (lista) => guardar({ ...datos, config: { ...config, servicios: lista } });
+  const agregarServ = () => {
+    if (!ns.nombre.trim()) return;
+    guardarServ([...servicios, { id: uid(), nombre: ns.nombre.trim(), min: Math.max(15, +ns.min || 30) }]);
+    setNs({ nombre: "", min: 30 });
+  };
+
+  return (
+    <>
+      <div className="card">
+        <h3 style={{ marginBottom: 12 }}>Ajustes generales</h3>
+        <div className="fila">
+          <div className="campo"><label>Nombre de la peluquería (aparece en los mensajes)</label>
+            <input value={config.salon} onChange={(e) => guardar({ ...datos, config: { ...config, salon: e.target.value } })} /></div>
+          <div className="campo"><label>Avisar con anticipación de</label>
+            <select value={config.horas} onChange={(e) => guardar({ ...datos, config: { ...config, horas: Number(e.target.value) } })}>
+              <option value={24}>24 horas</option>
+              <option value={48}>48 horas (2 días)</option>
+              <option value={72}>72 horas (3 días)</option>
+            </select></div>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginBottom: 4 }}>Servicios y duración</h3>
+        <div className="det" style={{ marginBottom: 10 }}>El tiempo que ocupa cada servicio en la agenda. Podés cambiarlo cuando quieras.</div>
+        {servicios.map((s) => (
+          <div className="item" key={s.id}>
+            <div className="nom">{s.nombre}</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="number" min={15} step={15} value={s.min} style={{ width: 76 }}
+                onChange={(e) => guardarServ(servicios.map((x) => x.id === s.id ? { ...x, min: Math.max(15, +e.target.value || 15) } : x))} />
+              <span className="det">min</span>
+              <button className="link" onClick={() => guardarServ(servicios.filter((x) => x.id !== s.id))}>Borrar</button>
+            </div>
+          </div>
+        ))}
+        <div className="fila" style={{ marginTop: 14 }}>
+          <div className="campo"><label>Nuevo servicio</label>
+            <input placeholder="Ej: Alisado" value={ns.nombre} onChange={(e) => setNs({ ...ns, nombre: e.target.value })} /></div>
+          <div className="campo" style={{ maxWidth: 120 }}><label>Minutos</label>
+            <input type="number" min={15} step={15} value={ns.min} onChange={(e) => setNs({ ...ns, min: e.target.value })} /></div>
+        </div>
+        <button className="btn" style={{ marginTop: 12 }} onClick={agregarServ} disabled={!ns.nombre.trim()}>Agregar servicio</button>
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginBottom: 4 }}>Sincronización entre dispositivos</h3>
+        <div className="det" style={{ marginBottom: 12 }}>Pegá acá la dirección de tu base de datos de Firebase y tocá "Guardar y conectar". Todos los dispositivos que tengan la misma dirección ven y modifican la misma agenda.</div>
+        <input placeholder="https://tu-proyecto-default-rtdb.firebaseio.com/salon-tuclave" value={url}
+          onChange={(e) => setUrl(e.target.value)} />
+        <div style={{ display: "flex", gap: 12, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <button className="btn mini" onClick={() => cambiarSyncUrl(url)} disabled={!url.trim() && !syncUrl}>Guardar y conectar</button>
+          {syncUrl && <button className="link" onClick={() => { setUrl(""); cambiarSyncUrl(""); }}>Desconectar</button>}
+          {syncEstado === "ok" && <span className="chip ok">Conectado ✓</span>}
+          {syncEstado === "error" && <span className="chip">Sin conexión ⚠️ revisá la dirección</span>}
+        </div>
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginBottom: 4 }}>Copia de seguridad</h3>
+        <div className="det" style={{ marginBottom: 12 }}>Descargá un archivo con todos los clientes, turnos y ajustes. Guardalo cada tanto (por ejemplo, una vez por semana) en el mail o en Google Drive. Si algo pasa con el celular, lo restaurás desde acá y recuperás todo.</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <button className="btn" onClick={exportar}>Descargar copia de seguridad</button>
+          <label className="btn sec" style={{ cursor: "pointer" }}>
+            Restaurar desde archivo
+            <input type="file" accept=".json,application/json" onChange={importar} style={{ display: "none" }} />
+          </label>
+        </div>
+        {msgImport && <div className="aviso" style={{ marginTop: 12, marginBottom: 0 }}>{msgImport}</div>}
+        <div className="det" style={{ marginTop: 10 }}>Ojo: restaurar reemplaza todos los datos actuales por los del archivo.</div>
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<SalonApp />);
+</script>
+</body>
+</html>
