@@ -206,7 +206,7 @@ function SalonApp() {
         const remoto = await traerRemoto(normalizar(url));
         if (remoto && (!base || (remoto.mod || 0) >= (base.mod || 0))) base = remoto;
       }
-      if (!base) base = { clientes: [], turnos: [], config: { horas: 24, salon: "Mi peluquería", servicios: SERV_DEF } };
+      if (!base) base = { clientes: [], turnos: [], config: { salon: "Mi peluquería", servicios: SERV_DEF } };
       if (!base.config.servicios) base.config.servicios = SERV_DEF;
       setDatos(base);
       try { await window.storage.set("salon-datos-v1", JSON.stringify(base)); } catch {}
@@ -257,12 +257,14 @@ function SalonApp() {
 
   const { clientes, turnos, config } = datos;
 
-  /* ─── recordatorios pendientes ─── */
+  /* ─── recordatorios pendientes ───
+     se habilitan a las 10:00 hs del día anterior al turno */
   const ahora = new Date();
-  const limite = new Date(ahora.getTime() + config.horas * 3600 * 1000);
   const pendientes = turnos.filter((t) => {
     const f = new Date(t.fecha + "T" + (t.hora || "09:00"));
-    return f > ahora && f <= limite && !t.recordado;
+    const aviso = new Date(f.getTime() - 24 * 3600 * 1000);
+    aviso.setHours(10, 0, 0, 0);
+    return f > ahora && ahora >= aviso && !t.recordado;
   }).sort((a, b) => (a.fecha + a.hora).localeCompare(b.fecha + b.hora));
 
   const clienteDe = (t) => clientes.find((c) => c.id === t.clienteId);
@@ -310,7 +312,7 @@ function SalonApp() {
           ? <FichaCliente id={clienteAbierto} datos={datos} guardar={guardar} volver={() => setClienteAbierto(null)} />
           : <Clientes datos={datos} guardar={guardar} abrir={setClienteAbierto} />)}
         {tab === "nuevos" && <PorAgregar datos={datos} guardar={guardar} abrir={(id) => { setTab("clientes"); setClienteAbierto(id); }} />}
-        {tab === "record" && <Recordatorios pendientes={pendientes} clienteDe={clienteDe} mensajeDe={mensajeDe} enviarWsp={enviarWsp} horas={config.horas} servicios={config.servicios || []} />}
+        {tab === "record" && <Recordatorios pendientes={pendientes} clienteDe={clienteDe} mensajeDe={mensajeDe} enviarWsp={enviarWsp} servicios={config.servicios || []} />}
         {tab === "config" && <Ajustes datos={datos} guardar={guardar} syncUrl={syncUrl} cambiarSyncUrl={cambiarSyncUrl} syncEstado={syncEstado} />}
       </div>
     </div>
@@ -700,10 +702,10 @@ function FichaCliente({ id, datos, guardar, volver }) {
 }
 
 /* ─── Recordatorios ─── */
-function Recordatorios({ pendientes, clienteDe, mensajeDe, enviarWsp, horas, servicios }) {
+function Recordatorios({ pendientes, clienteDe, mensajeDe, enviarWsp, servicios }) {
   return (
     <>
-      <div className="aviso">Acá aparecen los turnos de las próximas {horas} horas que todavía no recibieron recordatorio. Tocá el botón verde y se abre WhatsApp con el mensaje listo para enviar.</div>
+      <div className="aviso">Acá aparecen los turnos que ya se pueden recordar: a partir de las 10:00 hs del día anterior. Tocá el botón verde y se abre WhatsApp con el mensaje listo para enviar.</div>
       {pendientes.length === 0 && <div className="vacio">No hay recordatorios pendientes por ahora. 🎉</div>}
       {pendientes.map((t) => {
         const c = clienteDe(t);
@@ -816,13 +818,8 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado }) {
         <div className="fila">
           <div className="campo"><label>Nombre de la peluquería (aparece en los mensajes)</label>
             <input value={config.salon} onChange={(e) => guardar({ ...datos, config: { ...config, salon: e.target.value } })} /></div>
-          <div className="campo"><label>Avisar con anticipación de</label>
-            <select value={config.horas} onChange={(e) => guardar({ ...datos, config: { ...config, horas: Number(e.target.value) } })}>
-              <option value={24}>24 horas</option>
-              <option value={48}>48 horas (2 días)</option>
-              <option value={72}>72 horas (3 días)</option>
-            </select></div>
         </div>
+        <div className="det" style={{ marginTop: 10 }}>Los recordatorios se habilitan a las 10:00 hs del día anterior a cada turno.</div>
       </div>
 
       <div className="card">
