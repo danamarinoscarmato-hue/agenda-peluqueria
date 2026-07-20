@@ -174,6 +174,8 @@ function SalonApp() {
   const [syncUrl, setSyncUrl] = useState("");
   const [syncEstado, setSyncEstado] = useState("");
   const [desbloqueado, setDesbloqueado] = useState(null);
+  const [adminOk, setAdminOk] = useState(null);
+  const [pedirAdmin, setPedirAdmin] = useState(false);
 
   const normalizar = (u) => {
     let x = (u || "").trim().replace(/\/+$/, "");
@@ -230,6 +232,11 @@ function SalonApp() {
         const claveActual = base.config.clave || "";
         setDesbloqueado(!claveActual || !!(t && t.value === claveActual));
       } catch { setDesbloqueado(!base.config.clave); }
+      try {
+        const ta = await window.storage.get("salon-admin-ok");
+        const claveAdminActual = base.config.claveAdmin || "";
+        setAdminOk(!claveAdminActual || !!(ta && ta.value === claveAdminActual));
+      } catch { setAdminOk(!base.config.claveAdmin); }
     })();
   }, []);
 
@@ -273,7 +280,7 @@ function SalonApp() {
     return () => document.removeEventListener("visibilitychange", alVolver);
   }, [syncUrl]);
 
-  if (!datos || desbloqueado === null) return <div className="app"><style>{css}</style><div className="vacio">Cargando…</div></div>;
+  if (!datos || desbloqueado === null || adminOk === null) return <div className="app"><style>{css}</style><div className="vacio">Cargando…</div></div>;
 
   const { clientes, turnos, config } = datos;
 
@@ -289,6 +296,8 @@ function SalonApp() {
       </div>
     );
   }
+
+  const adminAplica = !config.claveAdmin || adminOk;
 
   /* ─── recordatorios pendientes ───
      se habilitan a las 10:00 hs del día anterior al turno */
@@ -333,7 +342,7 @@ function SalonApp() {
         </div>
 
         <div className="tabs">
-          {[["agenda", "Agenda"], ["clientes", "Clientes"], ["nuevos", "Por agregar"], ["record", "Recordatorios"], ["config", "Ajustes"]].map(([k, l]) => {
+          {[["agenda", "Agenda"], ["clientes", "Clientes"], ["nuevos", "Por agregar"], ["record", "Recordatorios"], ...(adminAplica ? [["config", "Ajustes"]] : [])].map(([k, l]) => {
             const n = k === "record" ? pendientes.length : k === "nuevos" ? provisionales.length : 0;
             return (
               <button key={k} className={"tab" + (tab === k ? " on" : "")} onClick={() => { setTab(k); setClienteAbierto(null); }}>
@@ -349,7 +358,25 @@ function SalonApp() {
           : <Clientes datos={datos} guardar={guardar} abrir={setClienteAbierto} />)}
         {tab === "nuevos" && <PorAgregar datos={datos} guardar={guardar} abrir={(id) => { setTab("clientes"); setClienteAbierto(id); }} />}
         {tab === "record" && <Recordatorios pendientes={pendientes} clienteDe={clienteDe} mensajeDe={mensajeDe} enviarWsp={enviarWsp} servicios={config.servicios || []} />}
-        {tab === "config" && <Ajustes datos={datos} guardar={guardar} syncUrl={syncUrl} cambiarSyncUrl={cambiarSyncUrl} syncEstado={syncEstado} />}
+        {tab === "config" && adminAplica && <Ajustes datos={datos} guardar={guardar} syncUrl={syncUrl} cambiarSyncUrl={cambiarSyncUrl} syncEstado={syncEstado} />}
+
+        {!adminAplica && (
+          pedirAdmin ? (
+            <div className="card" style={{ marginTop: 18, maxWidth: 320 }}>
+              <AccesoAdmin onOk={async (c) => {
+                if (c !== config.claveAdmin) return false;
+                try { await window.storage.set("salon-admin-ok", c); } catch {}
+                setAdminOk(true);
+                setPedirAdmin(false);
+                return true;
+              }} onCancelar={() => setPedirAdmin(false)} />
+            </div>
+          ) : (
+            <div style={{ textAlign: "center", marginTop: 24 }}>
+              <button className="link" onClick={() => setPedirAdmin(true)}>Acceso del equipo</button>
+            </div>
+          )
+        )}
       </div>
     </div>
   );
@@ -377,6 +404,34 @@ function Candado({ onOk }) {
           onKeyDown={(e) => e.key === "Enter" && entrar()} />
         {err && <div className="aviso" style={{ marginTop: 10, marginBottom: 0 }}>Código incorrecto.</div>}
         <button className="btn" style={{ marginTop: 14, width: "100%" }} onClick={entrar} disabled={!c.trim()}>Entrar</button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Acceso de administración (habilita la pestaña Ajustes) ─── */
+function AccesoAdmin({ onOk, onCancelar }) {
+  const [c, setC] = useState("");
+  const [err, setErr] = useState(false);
+
+  const entrar = async () => {
+    if (!c.trim()) return;
+    const ok = await onOk(c.trim());
+    if (!ok) { setErr(true); setC(""); }
+  };
+
+  return (
+    <div style={{ textAlign: "center" }}>
+      <h3 style={{ marginBottom: 10 }}>Acceso del equipo</h3>
+      <div className="det" style={{ marginBottom: 12 }}>Ingresá el código de administración para habilitar Ajustes en este dispositivo.</div>
+      <input type="password" value={c} autoFocus style={{ textAlign: "center" }}
+        placeholder="Código de administración"
+        onChange={(e) => { setC(e.target.value); setErr(false); }}
+        onKeyDown={(e) => e.key === "Enter" && entrar()} />
+      {err && <div className="aviso" style={{ marginTop: 10, marginBottom: 0 }}>Código incorrecto.</div>}
+      <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+        <button className="btn sec" style={{ flex: 1 }} onClick={onCancelar}>Cancelar</button>
+        <button className="btn" style={{ flex: 1 }} onClick={entrar} disabled={!c.trim()}>Entrar</button>
       </div>
     </div>
   );
@@ -841,6 +896,7 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado }) {
   const [msgImport, setMsgImport] = useState("");
   const [url, setUrl] = useState(syncUrl || "");
   const [clave, setClave] = useState("");
+  const [claveAdmin, setClaveAdmin] = useState("");
 
   const exportar = () => {
     const blob = new Blob([JSON.stringify(datos, null, 2)], { type: "application/json" });
@@ -915,6 +971,27 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado }) {
             window.location.reload();
           }}>Cerrar sesión en este dispositivo</button>
         )}
+
+        <div className="det" style={{ marginTop: 18, marginBottom: 12 }}>
+          {config.claveAdmin
+            ? "La pestaña Ajustes solo aparece en dispositivos que ingresaron este código (desde \"Acceso del equipo\", al pie de la app)."
+            : "Sin código de administrador, cualquiera que entre a la app ve la pestaña Ajustes. Poné uno para que solo vos (o quien autorices) puedan verla."}
+        </div>
+        <div className="fila">
+          <div className="campo"><label>{config.claveAdmin ? "Cambiar código de administrador" : "Código de administrador"}</label>
+            <input value={claveAdmin} onChange={(e) => setClaveAdmin(e.target.value)} placeholder="Ej: soydelta" /></div>
+        </div>
+        <div style={{ display: "flex", gap: 12, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <button className="btn mini" disabled={!claveAdmin.trim()} onClick={async () => {
+            const c = claveAdmin.trim();
+            try { await window.storage.set("salon-admin-ok", c); } catch {}
+            guardar({ ...datos, config: { ...config, claveAdmin: c } });
+            setClaveAdmin("");
+          }}>Guardar código de administrador</button>
+          {config.claveAdmin && (
+            <button className="link" onClick={() => guardar({ ...datos, config: { ...config, claveAdmin: "" } })}>Quitar (mostrar Ajustes a todos)</button>
+          )}
+        </div>
       </div>
 
       <div className="card">
