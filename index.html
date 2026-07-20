@@ -466,7 +466,8 @@ function Agenda({ datos, guardar, clienteDe }) {
                 ) : (() => {
                   const clienteSel = clientes.find((c) => c.id === f.clienteId);
                   const coincidencias = f.busca.trim()
-                    ? clientes.filter((c) => c.nombre.toLowerCase().includes(f.busca.trim().toLowerCase())).slice(0, 6)
+                    ? clientes.filter((c) => c.nombre.toLowerCase().includes(f.busca.trim().toLowerCase()))
+                        .sort((a, b) => a.nombre.localeCompare(b.nombre)).slice(0, 6)
                     : [];
                   return (
                     <div className="campo" style={{ position: "relative" }}>
@@ -737,7 +738,7 @@ function Recordatorios({ pendientes, clienteDe, mensajeDe, enviarWsp, servicios 
 
 /* ─── Clientes por agregar ─── */
 function PorAgregar({ datos, guardar, abrir }) {
-  const provisionales = datos.clientes.filter((c) => c.provisional);
+  const provisionales = datos.clientes.filter((c) => c.provisional).sort((a, b) => a.nombre.localeCompare(b.nombre));
   const editar = (id, campo, valor) => guardar({ ...datos, clientes: datos.clientes.map((c) => c.id === id ? { ...c, [campo]: valor } : c) });
   const confirmar = (id, frecuente = false) => guardar({ ...datos, clientes: datos.clientes.map((c) => c.id === id ? { ...c, provisional: false, frecuente: frecuente || c.frecuente } : c) });
   const descartar = (id) => guardar({ ...datos, clientes: datos.clientes.filter((c) => c.id !== id), turnos: datos.turnos.filter((t) => t.clienteId !== id) });
