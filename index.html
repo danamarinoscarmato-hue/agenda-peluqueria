@@ -315,7 +315,8 @@ function SalonApp() {
   const mensajeDe = (t) => {
     const c = clienteDe(t);
     const serv = labelDe(t, config.servicios || []);
-    return `¡Hola ${c ? c.nombre.split(" ")[0] : ""}! 💇 Te recordamos tu turno en ${config.salon} el ${fmtFecha(t.fecha)} a las ${t.hora} hs${serv !== "—" ? ` para ${serv.toLowerCase()}` : ""}. Si necesitás cambiarlo, avisanos. ¡Te esperamos!`;
+    const est = (config.estilistas || []).find((e) => e.id === t.estilistaId);
+    return `¡Hola ${c ? c.nombre.split(" ")[0] : ""}! 💇 Te recordamos tu turno en ${config.salon} el ${fmtFecha(t.fecha)} a las ${t.hora} hs${serv !== "—" ? ` para ${serv.toLowerCase()}` : ""}${est ? ` con ${est.nombre}` : ""}. Si necesitás cambiarlo, avisanos. ¡Te esperamos!`;
   };
 
   const enviarWsp = (t) => {
