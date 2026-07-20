@@ -130,6 +130,7 @@ const SWATCHES = ["#141414", "#2E2E2E", "#4A4A4A", "#6B6B6B", "#8A8A8A", "#ABABA
    link sin haberlo configurado antes arranca con una agenda vacía propia (y sin
    el código de acceso, porque ese dato también vive sincronizado). */
 const SYNC_URL_DEFAULT = "https://app-delta-b0a47-default-rtdb.firebaseio.com/";
+const MAIL_BACKUP_DEFAULT = "peluqueria.delta@gmail.com";
 const uid = () => Math.random().toString(36).slice(2, 9);
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 const addDias = (iso, n) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
@@ -927,6 +928,8 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado }) {
   const [url, setUrl] = useState(syncUrl || "");
   const [clave, setClave] = useState("");
   const [claveAdmin, setClaveAdmin] = useState("");
+  const [mb, setMb] = useState("");
+  const mailBackup = config.mailBackup || MAIL_BACKUP_DEFAULT;
 
   const exportar = () => {
     const blob = new Blob([JSON.stringify(datos, null, 2)], { type: "application/json" });
@@ -936,6 +939,14 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado }) {
     a.download = `respaldo-peluqueria-${hoyISO()}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const enviarPorMail = () => {
+    exportar();
+    const archivo = `respaldo-peluqueria-${hoyISO()}.json`;
+    const asunto = encodeURIComponent(`Copia de seguridad · ${config.salon} · ${hoyISO()}`);
+    const cuerpo = encodeURIComponent(`Copia de seguridad del ${hoyISO()}.\n\nSe descargó el archivo "${archivo}" a este dispositivo — antes de enviar, adjuntalo a este mail (buscalo en la carpeta de Descargas).`);
+    window.location.href = `mailto:${mailBackup}?subject=${asunto}&body=${cuerpo}`;
   };
   const importar = (e) => {
     const file = e.target.files && e.target.files[0];
@@ -1085,16 +1096,26 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado }) {
 
       <div className="card">
         <h3 style={{ marginBottom: 4 }}>Copia de seguridad</h3>
-        <div className="det" style={{ marginBottom: 12 }}>Descargá un archivo con todos los clientes, turnos y ajustes. Guardalo cada tanto (por ejemplo, una vez por semana) en el mail o en Google Drive. Si algo pasa con el celular, lo restaurás desde acá y recuperás todo.</div>
+        <div className="det" style={{ marginBottom: 12 }}>Descargá un archivo con todos los clientes, turnos y ajustes. Guardalo cada tanto (por ejemplo, una vez por semana) en el mail de la peluquería. Si algo pasa con el celular, lo restaurás desde acá y recuperás todo.</div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <button className="btn" onClick={exportar}>Descargar copia de seguridad</button>
+          <button className="btn sec" onClick={enviarPorMail}>Enviar copia por mail</button>
           <label className="btn sec" style={{ cursor: "pointer" }}>
             Restaurar desde archivo
             <input type="file" accept=".json,application/json" onChange={importar} style={{ display: "none" }} />
           </label>
         </div>
+        <div className="det" style={{ marginTop: 10 }}>"Enviar copia por mail" descarga el archivo y abre tu app de mail con un borrador dirigido a <b>{mailBackup}</b> — el archivo hay que adjuntarlo a mano (los mails no permiten adjuntarlo solos).</div>
         {msgImport && <div className="aviso" style={{ marginTop: 12, marginBottom: 0 }}>{msgImport}</div>}
         <div className="det" style={{ marginTop: 10 }}>Ojo: restaurar reemplaza todos los datos actuales por los del archivo.</div>
+        <div className="fila" style={{ marginTop: 14 }}>
+          <div className="campo"><label>Mail para copias de seguridad</label>
+            <input value={mb} onChange={(e) => setMb(e.target.value)} placeholder={mailBackup} /></div>
+        </div>
+        <button className="btn mini" style={{ marginTop: 10 }} disabled={!mb.trim()} onClick={() => {
+          guardar({ ...datos, config: { ...config, mailBackup: mb.trim() } });
+          setMb("");
+        }}>Guardar mail de respaldo</button>
       </div>
     </>
   );
