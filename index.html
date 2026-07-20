@@ -169,6 +169,7 @@ function SalonApp() {
   const [clienteAbierto, setClienteAbierto] = useState(null);
   const [syncUrl, setSyncUrl] = useState("");
   const [syncEstado, setSyncEstado] = useState("");
+  const [desbloqueado, setDesbloqueado] = useState(null);
 
   const normalizar = (u) => {
     let x = (u || "").trim().replace(/\/+$/, "");
@@ -220,6 +221,11 @@ function SalonApp() {
       if (!base.config.servicios) base.config.servicios = SERV_DEF;
       setDatos(base);
       try { await window.storage.set("salon-datos-v1", JSON.stringify(base)); } catch {}
+      try {
+        const t = await window.storage.get("salon-clave-ok");
+        const claveActual = base.config.clave || "";
+        setDesbloqueado(!claveActual || (t && t.value === claveActual));
+      } catch { setDesbloqueado(!base.config.clave); }
     })();
   }, []);
 
@@ -263,9 +269,22 @@ function SalonApp() {
     return () => document.removeEventListener("visibilitychange", alVolver);
   }, [syncUrl]);
 
-  if (!datos) return <div className="app"><style>{css}</style><div className="vacio">Cargando…</div></div>;
+  if (!datos || desbloqueado === null) return <div className="app"><style>{css}</style><div className="vacio">Cargando…</div></div>;
 
   const { clientes, turnos, config } = datos;
+
+  if (config.clave && !desbloqueado) {
+    return (
+      <div className="app"><style>{css}</style>
+        <Candado onOk={async (c) => {
+          if (c !== config.clave) return false;
+          try { await window.storage.set("salon-clave-ok", c); } catch {}
+          setDesbloqueado(true);
+          return true;
+        }} />
+      </div>
+    );
+  }
 
   /* ─── recordatorios pendientes ───
      se habilitan a las 10:00 hs del día anterior al turno */
@@ -327,6 +346,33 @@ function SalonApp() {
         {tab === "nuevos" && <PorAgregar datos={datos} guardar={guardar} abrir={(id) => { setTab("clientes"); setClienteAbierto(id); }} />}
         {tab === "record" && <Recordatorios pendientes={pendientes} clienteDe={clienteDe} mensajeDe={mensajeDe} enviarWsp={enviarWsp} servicios={config.servicios || []} />}
         {tab === "config" && <Ajustes datos={datos} guardar={guardar} syncUrl={syncUrl} cambiarSyncUrl={cambiarSyncUrl} syncEstado={syncEstado} />}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Candado de acceso ─── */
+function Candado({ onOk }) {
+  const [c, setC] = useState("");
+  const [err, setErr] = useState(false);
+
+  const entrar = async () => {
+    if (!c.trim()) return;
+    const ok = await onOk(c.trim());
+    if (!ok) { setErr(true); setC(""); }
+  };
+
+  return (
+    <div className="wrap" style={{ paddingTop: 90, maxWidth: 340 }}>
+      <div className="card" style={{ textAlign: "center" }}>
+        <h2 style={{ marginBottom: 14 }}>Acceso restringido</h2>
+        <div className="det" style={{ marginBottom: 14 }}>Ingresá el código para entrar a la agenda.</div>
+        <input type="password" value={c} autoFocus style={{ textAlign: "center" }}
+          placeholder="Código"
+          onChange={(e) => { setC(e.target.value); setErr(false); }}
+          onKeyDown={(e) => e.key === "Enter" && entrar()} />
+        {err && <div className="aviso" style={{ marginTop: 10, marginBottom: 0 }}>Código incorrecto.</div>}
+        <button className="btn" style={{ marginTop: 14, width: "100%" }} onClick={entrar} disabled={!c.trim()}>Entrar</button>
       </div>
     </div>
   );
@@ -790,6 +836,7 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado }) {
   const [ns, setNs] = useState({ nombre: "", min: 30 });
   const [msgImport, setMsgImport] = useState("");
   const [url, setUrl] = useState(syncUrl || "");
+  const [clave, setClave] = useState("");
 
   const exportar = () => {
     const blob = new Blob([JSON.stringify(datos, null, 2)], { type: "application/json" });
@@ -834,6 +881,36 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado }) {
             <input value={config.salon} onChange={(e) => guardar({ ...datos, config: { ...config, salon: e.target.value } })} /></div>
         </div>
         <div className="det" style={{ marginTop: 10 }}>Los recordatorios se habilitan a las 10:00 hs del día anterior a cada turno.</div>
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginBottom: 4 }}>Seguridad</h3>
+        <div className="det" style={{ marginBottom: 12 }}>
+          {config.clave
+            ? "La app pide este código para entrar. Un dispositivo que ya lo ingresó no lo vuelve a pedir."
+            : "Sin código, cualquiera con el link puede abrir la app. Podés poner uno para que solo entre el personal."}
+        </div>
+        <div className="fila">
+          <div className="campo"><label>{config.clave ? "Cambiar código" : "Código de acceso"}</label>
+            <input value={clave} onChange={(e) => setClave(e.target.value)} placeholder="Ej: delta2026" /></div>
+        </div>
+        <div style={{ display: "flex", gap: 12, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <button className="btn mini" disabled={!clave.trim()} onClick={async () => {
+            const c = clave.trim();
+            try { await window.storage.set("salon-clave-ok", c); } catch {}
+            guardar({ ...datos, config: { ...config, clave: c } });
+            setClave("");
+          }}>Guardar código</button>
+          {config.clave && (
+            <button className="link" onClick={() => guardar({ ...datos, config: { ...config, clave: "" } })}>Quitar código</button>
+          )}
+        </div>
+        {config.clave && (
+          <button className="btn sec mini" style={{ marginTop: 12 }} onClick={async () => {
+            try { await window.storage.set("salon-clave-ok", ""); } catch {}
+            window.location.reload();
+          }}>Cerrar sesión en este dispositivo</button>
+        )}
       </div>
 
       <div className="card">
