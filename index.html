@@ -162,7 +162,7 @@ function SalonApp() {
 
   const normalizar = (u) => {
     let x = (u || "").trim().replace(/\/+$/, "");
-    if (x && !x.endsWith(".json")) x += ".json";
+    if (x && !x.endsWith(".json")) x += "/.json";
     return x;
   };
 
