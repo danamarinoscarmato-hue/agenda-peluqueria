@@ -224,7 +224,7 @@ function SalonApp() {
       try {
         const t = await window.storage.get("salon-clave-ok");
         const claveActual = base.config.clave || "";
-        setDesbloqueado(!claveActual || (t && t.value === claveActual));
+        setDesbloqueado(!claveActual || !!(t && t.value === claveActual));
       } catch { setDesbloqueado(!base.config.clave); }
     })();
   }, []);
