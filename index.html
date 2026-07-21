@@ -104,6 +104,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--acento)}
 .mnum{font-size:12.5px;font-weight:700}
 .mcnt{margin-top:4px;font-size:11px;font-weight:700;background:var(--acento);color:#fff;border-radius:99px;padding:1px 7px;display:inline-block}
 .tl{position:relative}
+.tl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .tl-linea{position:absolute;left:0;right:0;border-top:1px solid var(--linea)}
 .tl-linea span{position:absolute;top:-9px;left:0;font-size:11px;font-weight:700;color:var(--tinta2);background:var(--tarjeta);padding-right:6px}
 .tl-media{position:absolute;left:52px;right:0;border-top:1px dashed var(--linea);opacity:.6}
@@ -566,6 +567,7 @@ function Agenda({ datos, guardar, clienteDe }) {
           return { t, ini, fin, lane };
         });
         const nL = Math.max(1, lanes.length);
+        const LANE_PX = 150;
         return (
           <>
             <div className="card" ref={formRef}>
@@ -670,33 +672,35 @@ function Agenda({ datos, guardar, clienteDe }) {
             </div>
 
             <div className="card" style={{ paddingRight: 10 }}>
-              <div className="tl" style={{ height: 9 * HPX + 14 }}>
-                {Array.from({ length: 10 }, (_, i) => 10 + i).map((h) => (
-                  <div className="tl-linea" key={h} style={{ top: (h - 10) * HPX + 10 }}>
-                    <span>{h}:00</span>
+              <div className={nL > 1 ? "tl-scroll" : undefined}>
+                <div className="tl" style={{ height: 9 * HPX + 14, minWidth: nL > 1 ? 52 + nL * LANE_PX : undefined }}>
+                  {Array.from({ length: 10 }, (_, i) => 10 + i).map((h) => (
+                    <div className="tl-linea" key={h} style={{ top: (h - 10) * HPX + 10 }}>
+                      <span>{h}:00</span>
+                    </div>
+                  ))}
+                  {Array.from({ length: 9 }, (_, i) => (
+                    <div className="tl-media" key={i} style={{ top: i * HPX + HPX / 2 + 10 }} />
+                  ))}
+                  <div className="tl-area" style={{ top: 10, ...(nL > 1 ? { width: nL * LANE_PX, right: "auto" } : {}) }}>
+                    {conPos.map(({ t, ini, fin, lane }) => {
+                      const c = clienteDe(t);
+                      const est = estilistaDe(t);
+                      return (
+                        <div key={t.id} className={"tl-turno" + (t.id === editId ? " edit" : "")} onClick={() => empezarEdicion(t)} style={{
+                          top: (ini - 600) / 60 * HPX + 1,
+                          height: Math.max((fin - ini) / 60 * HPX - 3, 24),
+                          left: nL > 1 ? lane * LANE_PX : `${lane * (100 / nL)}%`,
+                          width: nL > 1 ? LANE_PX - 6 : `calc(${100 / nL}% - 5px)`,
+                          ...(est ? { borderLeftColor: colorEst(est.id) } : {}),
+                        }}>
+                          <div className="tn">{c ? c.nombre : "(cliente eliminado)"}{t.recordado ? " ✓" : ""}</div>
+                          <div className="ts">{labelDe(t, servicios)}{est ? ` · ${est.nombre}` : ""}</div>
+                          <button className="x" onClick={(e) => { e.stopPropagation(); borrar(t.id); }} title="Borrar turno">×</button>
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-                {Array.from({ length: 9 }, (_, i) => (
-                  <div className="tl-media" key={i} style={{ top: i * HPX + HPX / 2 + 10 }} />
-                ))}
-                <div className="tl-area" style={{ top: 10 }}>
-                  {conPos.map(({ t, ini, fin, lane }) => {
-                    const c = clienteDe(t);
-                    const est = estilistaDe(t);
-                    return (
-                      <div key={t.id} className={"tl-turno" + (t.id === editId ? " edit" : "")} onClick={() => empezarEdicion(t)} style={{
-                        top: (ini - 600) / 60 * HPX + 1,
-                        height: Math.max((fin - ini) / 60 * HPX - 3, 24),
-                        left: `${lane * (100 / nL)}%`,
-                        width: `calc(${100 / nL}% - 5px)`,
-                        ...(est ? { borderLeftColor: colorEst(est.id) } : {}),
-                      }}>
-                        <div className="tn">{c ? c.nombre : "(cliente eliminado)"}{t.recordado ? " ✓" : ""}</div>
-                        <div className="ts">{labelDe(t, servicios)}{est ? ` · ${est.nombre}` : ""}</div>
-                        <button className="x" onClick={(e) => { e.stopPropagation(); borrar(t.id); }} title="Borrar turno">×</button>
-                      </div>
-                    );
-                  })}
                 </div>
               </div>
               {dia.length === 0 && <div className="vacio" style={{ paddingTop: 0 }}>Sin turnos este día.</div>}
