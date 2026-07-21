@@ -830,10 +830,27 @@ function Clientes({ datos, guardar, abrir }) {
 function FichaCliente({ id, datos, guardar, volver }) {
   const c = datos.clientes.find((x) => x.id === id);
   const [nota, setNota] = useState("");
+  const [editando, setEditando] = useState(false);
+  const [fEdit, setFEdit] = useState({ nombre: "", telefono: "", frecuente: false });
   if (!c) return null;
 
   const historial = datos.turnos.filter((t) => t.clienteId === id)
     .sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
+
+  const empezarEdicionCliente = () => {
+    setFEdit({ nombre: c.nombre, telefono: c.telefono || "", frecuente: !!c.frecuente });
+    setEditando(true);
+  };
+  const guardarEdicionCliente = () => {
+    if (!fEdit.nombre.trim()) return;
+    guardar({
+      ...datos,
+      clientes: datos.clientes.map((x) => x.id === id
+        ? { ...x, nombre: fEdit.nombre.trim(), telefono: fEdit.telefono.trim(), frecuente: fEdit.frecuente }
+        : x),
+    });
+    setEditando(false);
+  };
 
   const agregarNota = () => {
     if (!nota.trim()) return;
@@ -853,8 +870,33 @@ function FichaCliente({ id, datos, guardar, volver }) {
     <>
       <button className="link" onClick={volver}>← Volver a clientes</button>
       <div className="card" style={{ marginTop: 12 }}>
-        <h2>{c.nombre}{c.frecuente && <span className="chip ok" style={{ marginLeft: 10, verticalAlign: "middle" }}>Frecuente</span>}</h2>
-        <div className="det" style={{ marginTop: 4 }}>{c.telefono || "sin teléfono"}</div>
+        {editando ? (
+          <>
+            <div className="fila">
+              <div className="campo"><label>Nombre y apellido</label>
+                <input value={fEdit.nombre} onChange={(e) => setFEdit({ ...fEdit, nombre: e.target.value })} /></div>
+              <div className="campo"><label>Teléfono (con código de área, sin 0 ni 15)</label>
+                <input placeholder="11 5555 5555" value={fEdit.telefono} onChange={(e) => setFEdit({ ...fEdit, telefono: e.target.value })} /></div>
+            </div>
+            {nombreDup(fEdit.nombre, datos.clientes, id) && (
+              <div className="aviso" style={{ marginTop: 10, marginBottom: 0 }}>⚠️ Ya existe otro cliente llamado "{fEdit.nombre.trim()}".</div>
+            )}
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, cursor: "pointer" }}>
+              <input type="checkbox" style={{ width: "auto" }} checked={fEdit.frecuente} onChange={(e) => setFEdit({ ...fEdit, frecuente: e.target.checked })} />
+              Cliente frecuente
+            </label>
+            <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+              <button className="btn" onClick={guardarEdicionCliente} disabled={!fEdit.nombre.trim()}>Guardar cambios</button>
+              <button className="btn sec" onClick={() => setEditando(false)}>Cancelar</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h2>{c.nombre}{c.frecuente && <span className="chip ok" style={{ marginLeft: 10, verticalAlign: "middle" }}>Frecuente</span>}</h2>
+            <div className="det" style={{ marginTop: 4 }}>{c.telefono || "sin teléfono"}</div>
+            <button className="link" style={{ marginTop: 8 }} onClick={empezarEdicionCliente}>Editar datos</button>
+          </>
+        )}
 
         <h3 style={{ margin: "18px 0 8px" }}>Notas</h3>
         <textarea rows={2} placeholder="Ej: fórmula 7.3 + 6% · 30 min · le gustó con reflejos"
