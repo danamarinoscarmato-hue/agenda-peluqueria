@@ -183,6 +183,17 @@ function SalonApp() {
   const [desbloqueado, setDesbloqueado] = useState(null);
   const [adminOk, setAdminOk] = useState(null);
   const [pedirAdmin, setPedirAdmin] = useState(false);
+  const [ahoraTick, setAhoraTick] = useState(() => Date.now());
+  const [backupOculto, setBackupOculto] = useState("");
+
+  useEffect(() => {
+    const id = setInterval(() => setAhoraTick(Date.now()), 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    window.storage.get("backup-oculto-hasta").then((r) => { if (r) setBackupOculto(r.value); }).catch(() => {});
+  }, []);
 
   const normalizar = (u) => {
     let x = (u || "").trim().replace(/\/+$/, "");
@@ -335,11 +346,28 @@ function SalonApp() {
     guardar({ ...datos, turnos: turnos.map((x) => x.id === t.id ? { ...x, recordado: true } : x) });
   };
 
+  /* ─── recordatorio semanal de copia de seguridad: sábados desde las 19:00 ─── */
+  const ahoraD = new Date(ahoraTick);
+  const hoyClave = ahoraD.toISOString().slice(0, 10);
+  const mostrarBackup = ahoraD.getDay() === 6 && ahoraD.getHours() >= 19 && backupOculto !== hoyClave;
+
   /* ─── vistas ─── */
   return (
     <div className="app">
       <style>{css}</style>
       <div className="wrap">
+        {mostrarBackup && (
+          <div className="aviso" style={{ marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span>📋 Es sábado — no te olvides de hacer la copia de seguridad semanal.</span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn mini" onClick={() => setTab("config")}>Ir a Ajustes</button>
+              <button className="link" onClick={async () => {
+                try { await window.storage.set("backup-oculto-hasta", hoyClave); } catch {}
+                setBackupOculto(hoyClave);
+              }}>Ya la hice</button>
+            </div>
+          </div>
+        )}
         <div className="header">
           <div className="swatches">{SWATCHES.map((c) => <div key={c} className="sw" style={{ background: c }} />)}</div>
           <div className="marca">
