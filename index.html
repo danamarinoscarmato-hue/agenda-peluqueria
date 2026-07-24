@@ -24,6 +24,29 @@ window.storage = {
   get: async (k) => { const v = localStorage.getItem(k); return v === null ? null : { key: k, value: v }; },
   set: async (k, v) => { localStorage.setItem(k, String(v)); return { key: k, value: String(v) }; }
 };
+/* Service worker: solo para notificaciones, no guarda caché de la app */
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+/* Preferencia de notificaciones compartida con el service worker (IndexedDB) */
+window.notifFlag = (valor) => new Promise((res) => {
+  try {
+    const req = indexedDB.open("salon-notif", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("kv");
+    req.onerror = () => res(undefined);
+    req.onsuccess = () => {
+      const db = req.result;
+      if (valor === undefined) {
+        const t = db.transaction("kv").objectStore("kv").get("notif-on");
+        t.onsuccess = () => res(t.result); t.onerror = () => res(undefined);
+      } else {
+        const t = db.transaction("kv", "readwrite");
+        t.objectStore("kv").put(valor, "notif-on");
+        t.oncomplete = () => res(valor); t.onerror = () => res(undefined);
+      }
+    };
+  } catch { res(undefined); }
+});
 </script>
 <script type="text/babel">
 const { useState, useEffect, useMemo, useRef } = React;
@@ -171,6 +194,19 @@ const fmtFecha = (iso) => {
   return d.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
 };
 
+/* turnos con recordatorio listo para enviar: desde las 10:00 del último día
+   de trabajo anterior al turno (los del martes, desde el sábado) */
+const pendientesDe = (turnos) => {
+  const ahora = new Date();
+  return (turnos || []).filter((t) => {
+    if (t.recordado) return false;
+    const f = new Date(t.fecha + "T" + (t.hora || "09:00"));
+    let diaAviso = addDias(t.fecha, -1);
+    while (cerrado(diaAviso)) diaAviso = addDias(diaAviso, -1);
+    return f > ahora && ahora >= new Date(diaAviso + "T10:00:00");
+  }).sort((a, b) => (a.fecha + a.hora).localeCompare(b.fecha + b.hora));
+};
+
 /* Firebase no guarda arrays vacíos (los borra), así que al leer datos hay que
    reponer clientes/turnos/notas que hayan quedado ausentes por estar vacíos */
 const sanear = (d) => ({
@@ -206,6 +242,7 @@ function SalonApp() {
   const [pedirAdmin, setPedirAdmin] = useState(false);
   const [ahoraTick, setAhoraTick] = useState(() => Date.now());
   const [backupOculto, setBackupOculto] = useState("");
+  const [notifOn, setNotifOn] = useState(false);
 
   useEffect(() => {
     const id = setInterval(() => setAhoraTick(Date.now()), 60000);
@@ -214,6 +251,12 @@ function SalonApp() {
 
   useEffect(() => {
     window.storage.get("backup-oculto-hasta").then((r) => { if (r) setBackupOculto(r.value); }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    window.storage.get("salon-notif-on").then((r) => {
+      if (r && r.value === "si" && typeof Notification !== "undefined" && Notification.permission === "granted") setNotifOn(true);
+    }).catch(() => {});
   }, []);
 
   const normalizar = (u) => {
@@ -345,6 +388,58 @@ function SalonApp() {
     return () => clearInterval(id);
   }, [syncUrl]);
 
+  /* ─── notificaciones (opcionales, se activan por dispositivo en Ajustes) ─── */
+  const avisar = async (titulo, cuerpo) => {
+    try {
+      const reg = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : null;
+      if (reg) { await reg.showNotification(titulo, { body: cuerpo, tag: "recordatorios" }); return; }
+    } catch {}
+    try { new Notification(titulo, { body: cuerpo, tag: "recordatorios" }); } catch {}
+  };
+
+  const pedirNotif = async () => {
+    if (typeof Notification === "undefined") { alert("Este navegador no permite notificaciones."); return; }
+    let p = Notification.permission;
+    if (p !== "granted") p = await Notification.requestPermission();
+    if (p !== "granted") { alert('El navegador no dio permiso. Si se tocó "Bloquear" por error, hay que permitir las notificaciones desde la configuración del sitio.'); return; }
+    setNotifOn(true);
+    try { await window.storage.set("salon-notif-on", "si"); } catch {}
+    window.notifFlag("si").catch(() => {});
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg && "periodicSync" in reg) await reg.periodicSync.register("recordatorios", { minInterval: 4 * 3600 * 1000 });
+    } catch {}
+    avisar("Agenda Peluquería", "Listo ✂️ Este dispositivo va a avisar cuando haya recordatorios para enviar.");
+  };
+
+  const apagarNotif = async () => {
+    setNotifOn(false);
+    try { await window.storage.set("salon-notif-on", "no"); } catch {}
+    window.notifFlag("no").catch(() => {});
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg && "periodicSync" in reg) await reg.periodicSync.unregister("recordatorios");
+    } catch {}
+  };
+
+  /* con las notificaciones activadas, avisa cuando hay recordatorios nuevos
+     y la app no está a la vista (una vez por recordatorio por día) */
+  useEffect(() => {
+    if (!notifOn || !datos || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    if (document.visibilityState === "visible") return;
+    const pend = pendientesDe(datos.turnos);
+    if (pend.length === 0) return;
+    (async () => {
+      const hoy = hoyISO();
+      let avisados = { fecha: hoy, ids: [] };
+      try { const r = await window.storage.get("salon-notif-avisados"); if (r) { const v = JSON.parse(r.value); if (v && v.fecha === hoy && Array.isArray(v.ids)) avisados = v; } } catch {}
+      const nuevos = pend.filter((t) => !avisados.ids.includes(t.id));
+      if (nuevos.length === 0) return;
+      avisar("Agenda Peluquería", pend.length === 1 ? "Hay 1 recordatorio listo para enviar 💬" : `Hay ${pend.length} recordatorios listos para enviar 💬`);
+      try { await window.storage.set("salon-notif-avisados", JSON.stringify({ fecha: hoy, ids: [...avisados.ids, ...nuevos.map((t) => t.id)] })); } catch {}
+    })();
+  }, [notifOn, datos, ahoraTick]);
+
   if (!datos || desbloqueado === null || adminOk === null) return <div className="app"><style>{css}</style><div className="vacio">Cargando…</div></div>;
 
   const { clientes, turnos, config } = datos;
@@ -368,14 +463,7 @@ function SalonApp() {
      se habilitan a las 10:00 hs del último día de trabajo anterior al turno:
      como domingo y lunes está cerrado, los turnos del martes se habilitan
      desde el sábado */
-  const ahora = new Date();
-  const pendientes = turnos.filter((t) => {
-    const f = new Date(t.fecha + "T" + (t.hora || "09:00"));
-    let diaAviso = addDias(t.fecha, -1);
-    while (cerrado(diaAviso)) diaAviso = addDias(diaAviso, -1);
-    const aviso = new Date(diaAviso + "T10:00:00");
-    return f > ahora && ahora >= aviso && !t.recordado;
-  }).sort((a, b) => (a.fecha + a.hora).localeCompare(b.fecha + b.hora));
+  const pendientes = pendientesDe(turnos);
 
   const clienteDe = (t) => clientes.find((c) => c.id === t.clienteId);
   const provisionales = clientes.filter((c) => c.provisional);
@@ -443,7 +531,7 @@ function SalonApp() {
           : <Clientes datos={datos} guardar={guardar} abrir={setClienteAbierto} />)}
         {tab === "nuevos" && <PorAgregar datos={datos} guardar={guardar} abrir={(id) => { setTab("clientes"); setClienteAbierto(id); }} />}
         {tab === "record" && <Recordatorios pendientes={pendientes} clienteDe={clienteDe} mensajeDe={mensajeDe} enviarWsp={enviarWsp} servicios={config.servicios || []} estilistas={config.estilistas || []} />}
-        {tab === "config" && adminAplica && <Ajustes datos={datos} guardar={guardar} syncUrl={syncUrl} cambiarSyncUrl={cambiarSyncUrl} syncEstado={syncEstado} />}
+        {tab === "config" && adminAplica && <Ajustes datos={datos} guardar={guardar} syncUrl={syncUrl} cambiarSyncUrl={cambiarSyncUrl} syncEstado={syncEstado} notifOn={notifOn} pedirNotif={pedirNotif} apagarNotif={apagarNotif} />}
 
         {!adminAplica && (
           pedirAdmin ? (
@@ -1046,7 +1134,7 @@ function PorAgregar({ datos, guardar, abrir }) {
 }
 
 /* ─── Ajustes ─── */
-function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado }) {
+function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado, notifOn, pedirNotif, apagarNotif }) {
   const { config } = datos;
   const servicios = config.servicios || [];
   const estilistas = config.estilistas || [];
@@ -1117,6 +1205,18 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado }) {
             <input value={config.salon} onChange={(e) => guardar({ ...datos, config: { ...config, salon: e.target.value } })} /></div>
         </div>
         <div className="det" style={{ marginTop: 10 }}>Los recordatorios se habilitan a las 10:00 hs del último día de trabajo anterior a cada turno (los del martes, desde el sábado).</div>
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginBottom: 4 }}>Notificaciones</h3>
+        <div className="det" style={{ marginBottom: 12 }}>Son opcionales y cada dispositivo elige por su cuenta: al activarlas, este teléfono o computadora avisa cuando hay recordatorios listos para enviar.</div>
+        {notifOn
+          ? (<>
+              <div className="det" style={{ marginBottom: 10 }}>✓ Activadas en este dispositivo.</div>
+              <button className="link" onClick={apagarNotif}>Desactivar en este dispositivo</button>
+            </>)
+          : <button className="btn" onClick={pedirNotif}>Activar en este dispositivo</button>}
+        <div className="det" style={{ marginTop: 10 }}>Al activarlas, el navegador pregunta si las permitís: hay que tocar "Permitir". En iPhone solo funcionan si la app está agregada a la pantalla de inicio.</div>
       </div>
 
       <div className="card">
