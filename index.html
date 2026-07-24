@@ -161,6 +161,11 @@ const nombreDup = (nombre, clientes, exceptoId) => {
   return n !== "" && clientes.some((c) => c.id !== exceptoId && c.nombre.trim().toLowerCase() === n);
 };
 
+/* Los turnos de Aldi se pintan de otro color para reconocerlos de un vistazo */
+const esAldi = (e) => !!e && (e.nombre || "").trim().toLowerCase().startsWith("aldi");
+const ALDI_BORDE = "#8E44AD";
+const ALDI_FONDO = "#F3EAFB";
+
 const fmtFecha = (iso) => {
   const d = new Date(iso + "T12:00:00");
   return d.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
@@ -173,6 +178,22 @@ const sanear = (d) => ({
   clientes: (d.clientes || []).map((c) => ({ ...c, notas: c.notas || [] })),
   turnos: d.turnos || [],
 });
+
+/* Une los recordatorios ya enviados entre dos versiones de los datos: si en
+   cualquiera de las dos un turno figura como recordado (para la misma fecha y
+   hora), queda recordado. Así, al enviarlo desde un dispositivo desaparece en
+   todos los demás, y un equipo desactualizado no lo puede "revivir" al guardar. */
+const unirRecordados = (base, otro) => {
+  if (!base || !base.turnos || !otro || !otro.turnos) return base;
+  const marcados = new Map(otro.turnos.filter((t) => t.recordado).map((t) => [t.id, (t.fecha || "") + "|" + (t.hora || "")]));
+  if (marcados.size === 0) return base;
+  let cambio = false;
+  const turnos = base.turnos.map((t) => {
+    if (!t.recordado && marcados.get(t.id) === (t.fecha || "") + "|" + (t.hora || "")) { cambio = true; return { ...t, recordado: true }; }
+    return t;
+  });
+  return cambio ? { ...base, turnos } : base;
+};
 
 function SalonApp() {
   const [datos, setDatos] = useState(null);
@@ -239,7 +260,8 @@ function SalonApp() {
       let base = local;
       if (url) {
         const remoto = await traerRemoto(normalizar(url));
-        if (remoto && (!base || (remoto.mod || 0) >= (base.mod || 0))) base = remoto;
+        if (remoto && (!base || (remoto.mod || 0) >= (base.mod || 0))) base = unirRecordados(remoto, local);
+        else if (remoto) base = unirRecordados(base, remoto);
       }
       if (!base) base = { clientes: [], turnos: [], config: { salon: "Mi peluquería", servicios: SERV_DEF } };
       if (!base.config.servicios) base.config.servicios = SERV_DEF;
@@ -262,7 +284,17 @@ function SalonApp() {
     nuevo = { ...nuevo, mod: Date.now() };
     setDatos(nuevo);
     try { await window.storage.set("salon-datos-v1", JSON.stringify(nuevo)); } catch (e) { console.error(e); }
-    if (syncUrl.trim()) subirRemoto(normalizar(syncUrl), nuevo);
+    if (syncUrl.trim()) {
+      /* antes de subir, trae lo del servidor y conserva los recordatorios que
+         otro dispositivo ya haya enviado, para que no vuelvan a aparecer */
+      const remoto = await traerRemoto(normalizar(syncUrl));
+      const combinado = unirRecordados(nuevo, remoto);
+      if (combinado !== nuevo) {
+        setDatos((act) => (act === nuevo ? combinado : act));
+        try { await window.storage.set("salon-datos-v1", JSON.stringify(combinado)); } catch {}
+      }
+      subirRemoto(normalizar(syncUrl), combinado);
+    }
   };
 
   const cambiarSyncUrl = async (u) => {
@@ -279,23 +311,38 @@ function SalonApp() {
     }
   };
 
+  /* trae lo último del servidor y lo aplica, uniendo los recordatorios ya
+     enviados desde cualquier dispositivo */
+  const refrescarRemoto = async () => {
+    if (!syncUrl.trim()) return;
+    const remoto = await traerRemoto(normalizar(syncUrl));
+    if (!remoto) return;
+    setDatos((act) => {
+      let prox;
+      if ((remoto.mod || 0) > ((act && act.mod) || 0)) {
+        if (!remoto.config.servicios) remoto.config.servicios = SERV_DEF;
+        prox = unirRecordados(remoto, act);
+      } else {
+        prox = unirRecordados(act, remoto);
+      }
+      if (prox !== act) window.storage.set("salon-datos-v1", JSON.stringify(prox)).catch(() => {});
+      return prox;
+    });
+  };
+
   /* al volver a la app, traer lo último */
   useEffect(() => {
-    const alVolver = async () => {
-      if (document.visibilityState !== "visible" || !syncUrl.trim()) return;
-      const remoto = await traerRemoto(normalizar(syncUrl));
-      if (!remoto) return;
-      setDatos((act) => {
-        if ((remoto.mod || 0) > ((act && act.mod) || 0)) {
-          if (!remoto.config.servicios) remoto.config.servicios = SERV_DEF;
-          window.storage.set("salon-datos-v1", JSON.stringify(remoto)).catch(() => {});
-          return remoto;
-        }
-        return act;
-      });
-    };
+    const alVolver = () => { if (document.visibilityState === "visible") refrescarRemoto(); };
     document.addEventListener("visibilitychange", alVolver);
     return () => document.removeEventListener("visibilitychange", alVolver);
+  }, [syncUrl]);
+
+  /* refresco automático cada 45 segundos con la app abierta: lo que se envía
+     o cambia en un dispositivo se refleja solo en los demás, sin recargar */
+  useEffect(() => {
+    if (!syncUrl.trim()) return;
+    const id = setInterval(() => { if (document.visibilityState === "visible") refrescarRemoto(); }, 45000);
+    return () => clearInterval(id);
   }, [syncUrl]);
 
   if (!datos || desbloqueado === null || adminOk === null) return <div className="app"><style>{css}</style><div className="vacio">Cargando…</div></div>;
@@ -318,12 +365,15 @@ function SalonApp() {
   const adminAplica = !config.claveAdmin || adminOk;
 
   /* ─── recordatorios pendientes ───
-     se habilitan a las 10:00 hs del día anterior al turno */
+     se habilitan a las 10:00 hs del último día de trabajo anterior al turno:
+     como domingo y lunes está cerrado, los turnos del martes se habilitan
+     desde el sábado */
   const ahora = new Date();
   const pendientes = turnos.filter((t) => {
     const f = new Date(t.fecha + "T" + (t.hora || "09:00"));
-    const aviso = new Date(f.getTime() - 24 * 3600 * 1000);
-    aviso.setHours(10, 0, 0, 0);
+    let diaAviso = addDias(t.fecha, -1);
+    while (cerrado(diaAviso)) diaAviso = addDias(diaAviso, -1);
+    const aviso = new Date(diaAviso + "T10:00:00");
     return f > ahora && ahora >= aviso && !t.recordado;
   }).sort((a, b) => (a.fecha + a.hora).localeCompare(b.fecha + b.hora));
 
@@ -332,9 +382,8 @@ function SalonApp() {
 
   const mensajeDe = (t) => {
     const c = clienteDe(t);
-    const serv = labelDe(t, config.servicios || []);
     const est = (config.estilistas || []).find((e) => e.id === t.estilistaId);
-    return `¡Hola ${c ? c.nombre.split(" ")[0] : ""}! 💇 Te recordamos tu turno en ${config.salon} el ${fmtFecha(t.fecha)} a las ${t.hora} hs${serv !== "—" ? ` para ${serv.toLowerCase()}` : ""}${est ? ` con ${est.nombre}` : ""}. Si necesitás cambiarlo, avisanos. ¡Te esperamos!`;
+    return `¡Hola ${c ? c.nombre.split(" ")[0] : ""}! 💇 Te recordamos tu turno en ${config.salon} el ${fmtFecha(t.fecha)} a las ${t.hora} hs${est ? ` con ${est.nombre}` : ""}. Si necesitás cambiarlo, avisanos. ¡Te esperamos!`;
   };
 
   const enviarWsp = (t) => {
@@ -720,7 +769,7 @@ function Agenda({ datos, guardar, clienteDe }) {
                           height: Math.max((fin - ini) / 60 * HPX - 3, 24),
                           left: nL > 1 ? lane * LANE_PX : `${lane * (100 / nL)}%`,
                           width: nL > 1 ? LANE_PX - 6 : `calc(${100 / nL}% - 5px)`,
-                          ...(est ? { borderLeftColor: colorEst(est.id) } : {}),
+                          ...(est ? (esAldi(est) ? { borderLeftColor: ALDI_BORDE, background: ALDI_FONDO } : { borderLeftColor: colorEst(est.id) }) : {}),
                         }}>
                           <div className="tn">{c ? c.nombre : "(cliente eliminado)"}{t.recordado ? " ✓" : ""}</div>
                           <div className="ts">{labelDe(t, servicios)}{est ? ` · ${est.nombre}` : ""}</div>
@@ -747,7 +796,7 @@ function Agenda({ datos, guardar, clienteDe }) {
                   const c = clienteDe(t);
                   const est = estilistaDe(t);
                   return (
-                    <div className="tmini" key={t.id} style={est ? { borderLeft: `3px solid ${colorEst(est.id)}` } : {}}>
+                    <div className="tmini" key={t.id} style={est ? (esAldi(est) ? { borderLeft: `3px solid ${ALDI_BORDE}`, background: ALDI_FONDO } : { borderLeft: `3px solid ${colorEst(est.id)}` }) : {}}>
                       {t.hora} {c ? c.nombre.split(" ")[0] : "?"}{est ? ` · ${est.nombre.split(" ")[0]}` : ""}
                     </div>
                   );
@@ -931,7 +980,7 @@ function FichaCliente({ id, datos, guardar, volver }) {
 function Recordatorios({ pendientes, clienteDe, mensajeDe, enviarWsp, servicios, estilistas }) {
   return (
     <>
-      <div className="aviso">Acá aparecen los turnos que ya se pueden recordar: a partir de las 10:00 hs del día anterior. Tocá el botón verde y se abre WhatsApp con el mensaje listo para enviar.</div>
+      <div className="aviso">Acá aparecen los turnos que ya se pueden recordar: a partir de las 10:00 hs del día anterior (los turnos del martes aparecen desde el sábado). Tocá el botón verde y se abre WhatsApp con el mensaje listo para enviar.</div>
       {pendientes.length === 0 && <div className="vacio">No hay recordatorios pendientes por ahora. 🎉</div>}
       {pendientes.map((t) => {
         const c = clienteDe(t);
@@ -1067,7 +1116,7 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado }) {
           <div className="campo"><label>Nombre de la peluquería (aparece en los mensajes)</label>
             <input value={config.salon} onChange={(e) => guardar({ ...datos, config: { ...config, salon: e.target.value } })} /></div>
         </div>
-        <div className="det" style={{ marginTop: 10 }}>Los recordatorios se habilitan a las 10:00 hs del día anterior a cada turno.</div>
+        <div className="det" style={{ marginTop: 10 }}>Los recordatorios se habilitan a las 10:00 hs del último día de trabajo anterior a cada turno (los del martes, desde el sábado).</div>
       </div>
 
       <div className="card">
