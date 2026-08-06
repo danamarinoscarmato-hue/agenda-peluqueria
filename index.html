@@ -213,6 +213,7 @@ const sanear = (d) => ({
   ...d,
   clientes: (d.clientes || []).map((c) => ({ ...c, notas: c.notas || [] })),
   turnos: d.turnos || [],
+  listaEspera: d.listaEspera || [],
 });
 
 /* Une los recordatorios ya enviados entre dos versiones de los datos: si en
@@ -306,7 +307,7 @@ function SalonApp() {
         if (remoto && (!base || (remoto.mod || 0) >= (base.mod || 0))) base = unirRecordados(remoto, local);
         else if (remoto) base = unirRecordados(base, remoto);
       }
-      if (!base) base = { clientes: [], turnos: [], config: { salon: "Mi peluquería", servicios: SERV_DEF } };
+      if (!base) base = { clientes: [], turnos: [], listaEspera: [], config: { salon: "Mi peluquería", servicios: SERV_DEF } };
       if (!base.config.servicios) base.config.servicios = SERV_DEF;
       setDatos(base);
       try { await window.storage.set("salon-datos-v1", JSON.stringify(base)); } catch {}
@@ -443,6 +444,7 @@ function SalonApp() {
   if (!datos || desbloqueado === null || adminOk === null) return <div className="app"><style>{css}</style><div className="vacio">Cargando…</div></div>;
 
   const { clientes, turnos, config } = datos;
+  const listaEspera = datos.listaEspera || [];
 
   if (config.clave && !desbloqueado) {
     return (
@@ -467,6 +469,11 @@ function SalonApp() {
 
   const clienteDe = (t) => clientes.find((c) => c.id === t.clienteId);
   const provisionales = clientes.filter((c) => c.provisional);
+
+  /* lista de espera: una entrada desaparece sola a los 7 días de cargada */
+  const esperaVigente = listaEspera
+    .filter((e) => (new Date(hoyISO() + "T12:00:00") - new Date(e.fecha + "T12:00:00")) / 86400000 < 7)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha));
 
   const mensajeDe = (t) => {
     const c = clienteDe(t);
@@ -521,8 +528,8 @@ function SalonApp() {
         </div>
 
         <div className="tabs">
-          {[["agenda", "Agenda"], ["clientes", "Clientes"], ["nuevos", "Por agregar"], ["record", "Recordatorios"], ...(adminAplica ? [["config", "Ajustes"]] : [])].map(([k, l]) => {
-            const n = k === "record" ? pendientes.length : k === "nuevos" ? provisionales.length : 0;
+          {[["agenda", "Agenda"], ["clientes", "Clientes"], ["nuevos", "Por agregar"], ["espera", "Lista de espera"], ["record", "Recordatorios"], ...(adminAplica ? [["config", "Ajustes"]] : [])].map(([k, l]) => {
+            const n = k === "record" ? pendientes.length : k === "nuevos" ? provisionales.length : k === "espera" ? esperaVigente.length : 0;
             return (
               <button key={k} className={"tab" + (tab === k ? " on" : "")} onClick={() => { setTab(k); setClienteAbierto(null); }}>
                 {l}{n > 0 && <span className="n">{n}</span>}
@@ -536,6 +543,7 @@ function SalonApp() {
           ? <FichaCliente id={clienteAbierto} datos={datos} guardar={guardar} volver={() => setClienteAbierto(null)} />
           : <Clientes datos={datos} guardar={guardar} abrir={setClienteAbierto} />)}
         {tab === "nuevos" && <PorAgregar datos={datos} guardar={guardar} abrir={(id) => { setTab("clientes"); setClienteAbierto(id); }} />}
+        {tab === "espera" && <ListaEspera datos={datos} guardar={guardar} esperaVigente={esperaVigente} />}
         {tab === "record" && <Recordatorios pendientes={pendientes} clienteDe={clienteDe} mensajeDe={mensajeDe} enviarWsp={enviarWsp} marcarRecordado={marcarRecordado} servicios={config.servicios || []} estilistas={config.estilistas || []} />}
         {tab === "config" && adminAplica && <Ajustes datos={datos} guardar={guardar} syncUrl={syncUrl} cambiarSyncUrl={cambiarSyncUrl} syncEstado={syncEstado} notifOn={notifOn} pedirNotif={pedirNotif} apagarNotif={apagarNotif} />}
 
@@ -1093,6 +1101,129 @@ function Recordatorios({ pendientes, clienteDe, mensajeDe, enviarWsp, marcarReco
             </div>
             <div className="nota" style={{ marginTop: 12 }}>{mensajeDe(t)}</div>
             {c && !c.telefono && <div className="det" style={{ marginTop: 6 }}>Este cliente no tiene teléfono cargado.</div>}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+/* ─── Lista de espera ─── */
+function ListaEspera({ datos, guardar, esperaVigente }) {
+  const { clientes } = datos;
+  const listaEspera = datos.listaEspera || [];
+  const servicios = datos.config.servicios || [];
+  const [f, setF] = useState({ clienteId: "", modo: "base", nombreNuevo: "", telNuevo: "", busca: "", servicios: [], horaDesde: "10:00", horaHasta: "19:00" });
+
+  const toggleServ = (id) => setF({
+    ...f,
+    servicios: f.servicios.includes(id) ? f.servicios.filter((x) => x !== id) : [...f.servicios, id],
+  });
+
+  const agregar = () => {
+    if (f.servicios.length === 0) return;
+    const nuevaEntrada = (clienteId) => ({ id: uid(), clienteId, servicios: f.servicios, horaDesde: f.horaDesde, horaHasta: f.horaHasta, fecha: hoyISO() });
+    if (f.modo === "nuevo") {
+      if (!f.nombreNuevo.trim()) return;
+      const nc = { id: uid(), nombre: f.nombreNuevo.trim(), telefono: f.telNuevo.trim(), notas: [], provisional: true };
+      guardar({ ...datos, clientes: [...clientes, nc], listaEspera: [...listaEspera, nuevaEntrada(nc.id)] });
+    } else {
+      if (!f.clienteId) return;
+      guardar({ ...datos, listaEspera: [...listaEspera, nuevaEntrada(f.clienteId)] });
+    }
+    setF({ ...f, servicios: [], nombreNuevo: "", telNuevo: "", clienteId: "", busca: "" });
+  };
+  const borrar = (id) => guardar({ ...datos, listaEspera: listaEspera.filter((e) => e.id !== id) });
+
+  const clienteSel = clientes.find((c) => c.id === f.clienteId);
+  const coincidencias = f.busca.trim()
+    ? clientes.filter((c) => c.nombre.toLowerCase().includes(f.busca.trim().toLowerCase()))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre)).slice(0, 6)
+    : [];
+
+  return (
+    <>
+      <div className="aviso">Clientes que quedaron sin turno disponible. Se sacan solos de la lista a los 7 días de cargados.</div>
+
+      <div className="card">
+        <h3 style={{ marginBottom: 12 }}>Agregar a la lista de espera</h3>
+        <div className="vsel" style={{ marginBottom: 12, width: "fit-content" }}>
+          <button className={f.modo !== "nuevo" ? "on" : ""} onClick={() => setF({ ...f, modo: "base" })}>De la base</button>
+          <button className={f.modo === "nuevo" ? "on" : ""} onClick={() => setF({ ...f, modo: "nuevo" })}>Cliente nuevo</button>
+        </div>
+        {f.modo === "nuevo" ? (
+          <div className="fila" style={{ marginBottom: 12 }}>
+            <div className="campo"><label>Nombre</label>
+              <input placeholder="Nombre del cliente" value={f.nombreNuevo} onChange={(e) => setF({ ...f, nombreNuevo: e.target.value })} /></div>
+            <div className="campo"><label>Teléfono (opcional)</label>
+              <input placeholder="11 5555 5555" value={f.telNuevo} onChange={(e) => setF({ ...f, telNuevo: e.target.value })} /></div>
+          </div>
+        ) : (
+          <div className="campo" style={{ position: "relative", marginBottom: 12 }}>
+            <label>Cliente (escribí para buscar)</label>
+            {clienteSel ? (
+              <div className="selcli">
+                <span className="nom">{clienteSel.nombre}{clienteSel.frecuente ? " ★" : ""}</span>
+                <button className="link" onClick={() => setF({ ...f, clienteId: "", busca: "" })}>cambiar</button>
+              </div>
+            ) : (
+              <>
+                <input placeholder="Nombre del cliente…" value={f.busca}
+                  onChange={(e) => setF({ ...f, busca: e.target.value, clienteId: "" })} />
+                {coincidencias.length > 0 && (
+                  <div className="sugerencias">
+                    {coincidencias.map((c) => (
+                      <button key={c.id} className="sug" onClick={() => setF({ ...f, clienteId: c.id, busca: "" })}>
+                        {c.nombre}{c.frecuente ? " ★" : ""} <span className="det">{c.provisional ? "· por agregar" : c.telefono ? "· " + c.telefono : ""}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {f.busca.trim() !== "" && coincidencias.length === 0 && (
+                  <div className="det" style={{ marginTop: 6 }}>No aparece en la base — tocá "Cliente nuevo" para anotarlo igual.</div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        <label>Servicios (tocá para elegir uno o más)</label>
+        <div className="servchips">
+          {servicios.map((s) => (
+            <button key={s.id} className={"schip" + (f.servicios.includes(s.id) ? " on" : "")}
+              onClick={() => toggleServ(s.id)}>{s.nombre} · {s.min}′</button>
+          ))}
+        </div>
+
+        <div className="fila" style={{ marginTop: 12 }}>
+          <div className="campo"><label>Desde</label>
+            <select value={f.horaDesde} onChange={(e) => setF({ ...f, horaDesde: e.target.value })}>
+              {HORAS.map((h) => <option key={h} value={h}>{h}</option>)}
+            </select></div>
+          <div className="campo"><label>Hasta</label>
+            <select value={f.horaHasta} onChange={(e) => setF({ ...f, horaHasta: e.target.value })}>
+              {HORAS.map((h) => <option key={h} value={h}>{h}</option>)}
+            </select></div>
+        </div>
+
+        <button className="btn" style={{ marginTop: 12 }} onClick={agregar}
+          disabled={f.servicios.length === 0 || (f.modo === "nuevo" ? !f.nombreNuevo.trim() : !f.clienteId)}>Agregar a la lista</button>
+      </div>
+
+      {esperaVigente.length === 0 && <div className="vacio">No hay nadie en la lista de espera. 🎉</div>}
+      {esperaVigente.map((e) => {
+        const c = clientes.find((x) => x.id === e.clienteId);
+        const dias = Math.floor((new Date(hoyISO() + "T12:00:00") - new Date(e.fecha + "T12:00:00")) / 86400000);
+        return (
+          <div className="card" key={e.id}>
+            <div className="item" style={{ padding: 0, borderBottom: "none" }}>
+              <div>
+                <div className="nom">{c ? c.nombre : "(cliente eliminado)"}</div>
+                <div className="det">{labelDe(e, servicios)} · de {e.horaDesde} a {e.horaHasta} hs</div>
+                <div className="det">{dias === 0 ? "Cargado hoy" : `Esperando hace ${dias} día${dias !== 1 ? "s" : ""}`} · se saca sola en {7 - dias} día{7 - dias !== 1 ? "s" : ""}</div>
+              </div>
+              <button className="link" onClick={() => borrar(e.id)}>Sacar de la lista</button>
+            </div>
           </div>
         );
       })}
