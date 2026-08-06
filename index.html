@@ -480,7 +480,13 @@ function SalonApp() {
     const tel = c.telefono.replace(/\D/g, "");
     const nro = tel.startsWith("54") ? tel : "549" + tel;
     window.open(`https://wa.me/${nro}?text=${encodeURIComponent(mensajeDe(t))}`, "_blank");
-    guardar({ ...datos, turnos: turnos.map((x) => x.id === t.id ? { ...x, recordado: true } : x) });
+    /* No se marca como recordado acá: no hay forma de saber si WhatsApp
+       realmente lo mandó (puede dar error si el número está mal cargado).
+       Se confirma aparte con marcarRecordado, una vez que se vio que salió bien. */
+  };
+
+  const marcarRecordado = (id) => {
+    guardar({ ...datos, turnos: turnos.map((x) => x.id === id ? { ...x, recordado: true } : x) });
   };
 
   /* ─── recordatorio semanal de copia de seguridad: sábados desde las 19:00 ─── */
@@ -530,7 +536,7 @@ function SalonApp() {
           ? <FichaCliente id={clienteAbierto} datos={datos} guardar={guardar} volver={() => setClienteAbierto(null)} />
           : <Clientes datos={datos} guardar={guardar} abrir={setClienteAbierto} />)}
         {tab === "nuevos" && <PorAgregar datos={datos} guardar={guardar} abrir={(id) => { setTab("clientes"); setClienteAbierto(id); }} />}
-        {tab === "record" && <Recordatorios pendientes={pendientes} clienteDe={clienteDe} mensajeDe={mensajeDe} enviarWsp={enviarWsp} servicios={config.servicios || []} estilistas={config.estilistas || []} />}
+        {tab === "record" && <Recordatorios pendientes={pendientes} clienteDe={clienteDe} mensajeDe={mensajeDe} enviarWsp={enviarWsp} marcarRecordado={marcarRecordado} servicios={config.servicios || []} estilistas={config.estilistas || []} />}
         {tab === "config" && adminAplica && <Ajustes datos={datos} guardar={guardar} syncUrl={syncUrl} cambiarSyncUrl={cambiarSyncUrl} syncEstado={syncEstado} notifOn={notifOn} pedirNotif={pedirNotif} apagarNotif={apagarNotif} />}
 
         {!adminAplica && (
@@ -1065,10 +1071,10 @@ function FichaCliente({ id, datos, guardar, volver }) {
 }
 
 /* ─── Recordatorios ─── */
-function Recordatorios({ pendientes, clienteDe, mensajeDe, enviarWsp, servicios, estilistas }) {
+function Recordatorios({ pendientes, clienteDe, mensajeDe, enviarWsp, marcarRecordado, servicios, estilistas }) {
   return (
     <>
-      <div className="aviso">Acá aparecen los turnos que ya se pueden recordar: a partir de las 10:00 hs del día anterior (los turnos del martes aparecen desde el sábado). Tocá el botón verde y se abre WhatsApp con el mensaje listo para enviar.</div>
+      <div className="aviso">Acá aparecen los turnos que ya se pueden recordar: a partir de las 10:00 hs del día anterior (los turnos del martes aparecen desde el sábado). Tocá "Enviar por WhatsApp" y después, una vez que veas que salió bien, tocá "Ya se envió" para sacarlo de la lista. Si WhatsApp da error (por ejemplo, número mal cargado), no lo confirmes y va a seguir apareciendo acá.</div>
       {pendientes.length === 0 && <div className="vacio">No hay recordatorios pendientes por ahora. 🎉</div>}
       {pendientes.map((t) => {
         const c = clienteDe(t);
@@ -1080,7 +1086,10 @@ function Recordatorios({ pendientes, clienteDe, mensajeDe, enviarWsp, servicios,
                 <div className="nom">{c ? c.nombre : "(cliente eliminado)"}</div>
                 <div className="det">{fmtFecha(t.fecha)} · {t.hora} hs · {labelDe(t, servicios)}{est ? ` · ${est.nombre}` : ""}</div>
               </div>
-              <button className="btn wsp mini" onClick={() => enviarWsp(t)} disabled={!c || !c.telefono}>Enviar por WhatsApp</button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn wsp mini" onClick={() => enviarWsp(t)} disabled={!c || !c.telefono}>Enviar por WhatsApp</button>
+                <button className="btn sec mini" onClick={() => marcarRecordado(t.id)}>Ya se envió</button>
+              </div>
             </div>
             <div className="nota" style={{ marginTop: 12 }}>{mensajeDe(t)}</div>
             {c && !c.telefono && <div className="det" style={{ marginTop: 6 }}>Este cliente no tiene teléfono cargado.</div>}
