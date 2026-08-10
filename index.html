@@ -639,10 +639,15 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   const [editId, setEditId] = useState(null);
   const formRef = useRef(null);
 
-  /* si venimos de "Agendar" en la lista de espera, precargar cliente y servicios */
+  /* si venimos de "Agendar" en la lista de espera, precargar cliente y servicios,
+     y saltar a un día hábil por si el día que se estaba mirando está cerrado */
   useEffect(() => {
     if (!desdeEspera) return;
     setEditId(null);
+    setVista("dia");
+    let d = hoyISO();
+    while (cerrado(d)) d = addDias(d, 1);
+    setFechaSel(d);
     setF((prev) => ({ ...prev, clienteId: desdeEspera.clienteId, servicios: desdeEspera.servicios, estilistaId: "", modo: "base", busca: "" }));
     setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }, [desdeEspera]);
