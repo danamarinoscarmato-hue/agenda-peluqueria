@@ -700,12 +700,8 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
       if (!f.clienteId) return;
       guardar({ ...datos, turnos: [...turnos, nuevoTurno(f.clienteId)], listaEspera: listaEsperaSinEsta });
     }
-    if (desdeEspera) {
-      limpiarDesdeEspera();
-      setF({ ...f, clienteId: "", servicios: [], estilistaId: "", busca: "", nombreNuevo: "", telNuevo: "" });
-    } else {
-      setF({ ...f, servicios: [], nombreNuevo: "", telNuevo: "" });
-    }
+    if (desdeEspera) limpiarDesdeEspera();
+    setF({ ...f, clienteId: "", servicios: [], estilistaId: "", busca: "", nombreNuevo: "", telNuevo: "" });
   };
   const borrar = (id) => guardar({ ...datos, turnos: turnos.filter((t) => t.id !== id) });
 
