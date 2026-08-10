@@ -131,7 +131,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--acento)}
 .tl-linea{position:absolute;left:0;right:0;border-top:1px solid var(--linea)}
 .tl-linea span{position:absolute;top:-9px;left:0;font-size:11px;font-weight:700;color:var(--tinta2);background:var(--tarjeta);padding-right:6px}
 .tl-media{position:absolute;left:52px;right:0;border-top:1px dashed var(--linea);opacity:.6}
-.tl-area{position:absolute;left:52px;right:0;top:0;bottom:0}
+.tl-area{position:absolute;left:52px;right:0;top:0;bottom:0;cursor:pointer}
 .tl-turno{position:absolute;background:var(--acento-suave);border-left:3px solid var(--acento);border-radius:8px;padding:3px 20px 3px 8px;overflow:hidden;font-size:12.5px;line-height:1.2}
 .tl-turno .tn{font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tl-turno .ts{color:var(--tinta2);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -244,6 +244,7 @@ function SalonApp() {
   const [ahoraTick, setAhoraTick] = useState(() => Date.now());
   const [backupOculto, setBackupOculto] = useState("");
   const [notifOn, setNotifOn] = useState(false);
+  const [desdeEspera, setDesdeEspera] = useState(null);
 
   useEffect(() => {
     const id = setInterval(() => setAhoraTick(Date.now()), 60000);
@@ -538,12 +539,12 @@ function SalonApp() {
           })}
         </div>
 
-        {tab === "agenda" && <Agenda datos={datos} guardar={guardar} clienteDe={clienteDe} />}
+        {tab === "agenda" && <Agenda datos={datos} guardar={guardar} clienteDe={clienteDe} desdeEspera={desdeEspera} limpiarDesdeEspera={() => setDesdeEspera(null)} />}
         {tab === "clientes" && (clienteAbierto
           ? <FichaCliente id={clienteAbierto} datos={datos} guardar={guardar} volver={() => setClienteAbierto(null)} />
           : <Clientes datos={datos} guardar={guardar} abrir={setClienteAbierto} />)}
         {tab === "nuevos" && <PorAgregar datos={datos} guardar={guardar} abrir={(id) => { setTab("clientes"); setClienteAbierto(id); }} />}
-        {tab === "espera" && <ListaEspera datos={datos} guardar={guardar} esperaVigente={esperaVigente} />}
+        {tab === "espera" && <ListaEspera datos={datos} guardar={guardar} esperaVigente={esperaVigente} irAAgendar={(entrada) => { setDesdeEspera(entrada); setTab("agenda"); }} />}
         {tab === "record" && <Recordatorios pendientes={pendientes} clienteDe={clienteDe} mensajeDe={mensajeDe} enviarWsp={enviarWsp} marcarRecordado={marcarRecordado} servicios={config.servicios || []} estilistas={config.estilistas || []} />}
         {tab === "config" && adminAplica && <Ajustes datos={datos} guardar={guardar} syncUrl={syncUrl} cambiarSyncUrl={cambiarSyncUrl} syncEstado={syncEstado} notifOn={notifOn} pedirNotif={pedirNotif} apagarNotif={apagarNotif} />}
 
@@ -627,8 +628,9 @@ function AccesoAdmin({ onOk, onCancelar }) {
 /* ─── Agenda ─── */
 const DIAS_LAB = ["mar", "mié", "jue", "vie", "sáb"];
 
-function Agenda({ datos, guardar, clienteDe }) {
+function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) {
   const { clientes, turnos } = datos;
+  const listaEspera = datos.listaEspera || [];
   const servicios = datos.config.servicios || [];
   const estilistas = datos.config.estilistas || [];
   const [vista, setVista] = useState("dia");
@@ -636,6 +638,14 @@ function Agenda({ datos, guardar, clienteDe }) {
   const [f, setF] = useState({ clienteId: "", hora: "10:00", servicios: [], estilistaId: "", modo: "base", nombreNuevo: "", telNuevo: "", busca: "", fecha: hoyISO() });
   const [editId, setEditId] = useState(null);
   const formRef = useRef(null);
+
+  /* si venimos de "Agendar" en la lista de espera, precargar cliente y servicios */
+  useEffect(() => {
+    if (!desdeEspera) return;
+    setEditId(null);
+    setF((prev) => ({ ...prev, clienteId: desdeEspera.clienteId, servicios: desdeEspera.servicios, estilistaId: "", modo: "base", busca: "" }));
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }, [desdeEspera]);
 
   const estilistaDe = (t) => estilistas.find((e) => e.id === t.estilistaId);
   const colorEst = (id) => SWATCHES[Math.max(0, estilistas.findIndex((e) => e.id === id)) % SWATCHES.length];
@@ -676,15 +686,21 @@ function Agenda({ datos, guardar, clienteDe }) {
   const agregar = () => {
     if (!f.hora || f.servicios.length === 0 || (estReq && !f.estilistaId)) return;
     const nuevoTurno = (clienteId) => ({ clienteId, hora: f.hora, servicios: f.servicios, estilistaId: f.estilistaId, fecha: fechaSel, id: uid(), recordado: false });
+    const listaEsperaSinEsta = desdeEspera ? listaEspera.filter((x) => x.id !== desdeEspera.id) : listaEspera;
     if (f.modo === "nuevo") {
       if (!f.nombreNuevo.trim()) return;
       const nc = { id: uid(), nombre: f.nombreNuevo.trim(), telefono: f.telNuevo.trim(), notas: [], provisional: true };
-      guardar({ ...datos, clientes: [...clientes, nc], turnos: [...turnos, nuevoTurno(nc.id)] });
+      guardar({ ...datos, clientes: [...clientes, nc], turnos: [...turnos, nuevoTurno(nc.id)], listaEspera: listaEsperaSinEsta });
     } else {
       if (!f.clienteId) return;
-      guardar({ ...datos, turnos: [...turnos, nuevoTurno(f.clienteId)] });
+      guardar({ ...datos, turnos: [...turnos, nuevoTurno(f.clienteId)], listaEspera: listaEsperaSinEsta });
     }
-    setF({ ...f, servicios: [], nombreNuevo: "", telNuevo: "" });
+    if (desdeEspera) {
+      limpiarDesdeEspera();
+      setF({ ...f, clienteId: "", servicios: [], estilistaId: "", busca: "", nombreNuevo: "", telNuevo: "" });
+    } else {
+      setF({ ...f, servicios: [], nombreNuevo: "", telNuevo: "" });
+    }
   };
   const borrar = (id) => guardar({ ...datos, turnos: turnos.filter((t) => t.id !== id) });
 
@@ -861,7 +877,17 @@ function Agenda({ datos, guardar, clienteDe }) {
                   {Array.from({ length: 9 }, (_, i) => (
                     <div className="tl-media" key={i} style={{ top: i * HPX + HPX / 2 + 10 }} />
                   ))}
-                  <div className="tl-area" style={{ top: 10, ...(nL > 1 ? { width: nL * LANE_PX, right: "auto" } : {}) }}>
+                  <div className="tl-area" style={{ top: 10, ...(nL > 1 ? { width: nL * LANE_PX, right: "auto" } : {}) }}
+                    onClick={(e) => {
+                      if (e.target !== e.currentTarget) return;
+                      const y = e.clientY - e.currentTarget.getBoundingClientRect().top;
+                      let min = 600 + (y / HPX) * 60;
+                      min = Math.round(min / 30) * 30;
+                      min = Math.max(600, Math.min(1110, min));
+                      setEditId(null);
+                      setF((prev) => ({ ...prev, clienteId: "", servicios: [], estilistaId: "", busca: "", hora: aHora(min) }));
+                      setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+                    }}>
                     {conPos.map(({ t, ini, fin, lane }) => {
                       const c = clienteDe(t);
                       const est = estilistaDe(t);
@@ -1109,7 +1135,7 @@ function Recordatorios({ pendientes, clienteDe, mensajeDe, enviarWsp, marcarReco
 }
 
 /* ─── Lista de espera ─── */
-function ListaEspera({ datos, guardar, esperaVigente }) {
+function ListaEspera({ datos, guardar, esperaVigente, irAAgendar }) {
   const { clientes } = datos;
   const listaEspera = datos.listaEspera || [];
   const servicios = datos.config.servicios || [];
@@ -1222,7 +1248,10 @@ function ListaEspera({ datos, guardar, esperaVigente }) {
                 <div className="det">{labelDe(e, servicios)} · de {e.horaDesde} a {e.horaHasta} hs</div>
                 <div className="det">{dias === 0 ? "Cargado hoy" : `Esperando hace ${dias} día${dias !== 1 ? "s" : ""}`} · se saca sola en {7 - dias} día{7 - dias !== 1 ? "s" : ""}</div>
               </div>
-              <button className="link" onClick={() => borrar(e.id)}>Sacar de la lista</button>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button className="btn mini" onClick={() => irAAgendar(e)}>Agendar</button>
+                <button className="link" onClick={() => borrar(e.id)}>Sacar</button>
+              </div>
             </div>
           </div>
         );
