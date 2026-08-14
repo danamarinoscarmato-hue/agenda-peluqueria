@@ -529,7 +529,7 @@ function SalonApp() {
         </div>
 
         <div className="tabs">
-          {[["agenda", "Agenda"], ["clientes", "Clientes"], ["nuevos", "Por agregar"], ["espera", "Lista de espera"], ["record", "Recordatorios"], ...(adminAplica ? [["config", "Ajustes"]] : [])].map(([k, l]) => {
+          {[["agenda", "Agenda"], ["clientes", "Clientes"], ["nuevos", "Por agregar"], ["record", "Recordatorios"], ["espera", "Lista de espera"], ...(adminAplica ? [["config", "Ajustes"]] : [])].map(([k, l]) => {
             const n = k === "record" ? pendientes.length : k === "nuevos" ? provisionales.length : k === "espera" ? esperaVigente.length : 0;
             return (
               <button key={k} className={"tab" + (tab === k ? " on" : "")} onClick={() => { setTab(k); setClienteAbierto(null); }}>
@@ -637,6 +637,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   const [fechaSel, setFechaSel] = useState(hoyISO());
   const [f, setF] = useState({ clienteId: "", hora: "10:00", servicios: [], estilistaId: "", modo: "base", nombreNuevo: "", telNuevo: "", busca: "", fecha: hoyISO() });
   const [editId, setEditId] = useState(null);
+  const [busq, setBusq] = useState("");
   const formRef = useRef(null);
 
   /* si venimos de "Agendar" en la lista de espera, precargar cliente y servicios,
@@ -733,6 +734,18 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
 
   const irADia = (fecha) => { setFechaSel(fecha); setVista("dia"); };
 
+  const busqResultados = (() => {
+    const q = busq.trim().toLowerCase();
+    if (!q) return [];
+    const coinciden = turnos.filter((t) => {
+      const c = clienteDe(t);
+      return c && c.nombre.toLowerCase().includes(q);
+    });
+    const futuros = coinciden.filter((t) => t.fecha >= hoyISO()).sort((a, b) => (a.fecha + a.hora).localeCompare(b.fecha + b.hora));
+    const pasados = coinciden.filter((t) => t.fecha < hoyISO()).sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
+    return [...futuros, ...pasados].slice(0, 8);
+  })();
+
   return (
     <>
       <div className="vnav">
@@ -747,6 +760,33 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
           <button className="navb" onClick={() => mover(1)}>›</button>
         </div>
       </div>
+
+      <div className="fila" style={{ marginBottom: 14 }}>
+        <div className="campo" style={{ position: "relative" }}>
+          <label>Buscar cliente</label>
+          <input placeholder="Nombre del cliente…" value={busq} onChange={(e) => setBusq(e.target.value)} />
+          {busqResultados.length > 0 && (
+            <div className="sugerencias">
+              {busqResultados.map((t) => {
+                const c = clienteDe(t);
+                return (
+                  <button key={t.id} className="sug" onClick={() => { irADia(t.fecha); setBusq(""); }}>
+                    {c.nombre} <span className="det">· {fmtFecha(t.fecha)} · {t.hora} hs{t.fecha < hoyISO() ? " (pasado)" : ""}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {busq.trim() !== "" && busqResultados.length === 0 && (
+            <div className="det" style={{ marginTop: 6 }}>Sin turnos para ese nombre.</div>
+          )}
+        </div>
+        <div className="campo" style={{ maxWidth: 180 }}>
+          <label>Ir a una fecha</label>
+          <input type="date" value={fechaSel} onChange={(e) => e.target.value && irADia(e.target.value)} />
+        </div>
+      </div>
+
       <div className="vtit" style={{ marginBottom: 12 }}>{titulo}</div>
 
       {vista === "dia" && cerrado(fechaSel) && (
