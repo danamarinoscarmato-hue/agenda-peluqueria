@@ -105,6 +105,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--acento)}
 .nota .f{font-size:11.5px;color:var(--tinta2);font-weight:700;margin-bottom:2px}
 .link{background:none;border:none;color:var(--acento);font-weight:700;cursor:pointer;font-size:13.5px;font-family:'Karla';padding:0}
 .aviso{background:var(--acento-suave);border-radius:10px;padding:10px 14px;font-size:13.5px;color:var(--acento);margin-bottom:14px}
+.toast{position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));max-width:600px;margin:0 auto;
+  background:var(--tinta);color:#fff;border-radius:12px;padding:12px 16px;display:flex;justify-content:space-between;
+  align-items:center;gap:14px;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:40;font-size:14px}
+.toast button{background:none;border:none;color:#fff;font-weight:700;font-family:'Karla';cursor:pointer;font-size:14px;
+  text-decoration:underline;flex-shrink:0;padding:0}
 .vnav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;flex-wrap:wrap}
 .vtit{font-family:'Fraunces',serif;font-size:17px;font-weight:600;text-transform:capitalize}
 .vsel{display:flex;background:var(--acento-suave);border-radius:9px;padding:3px;gap:2px}
@@ -641,6 +646,8 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   const [mostrarBusq, setMostrarBusq] = useState(false);
   const buscadorRef = useRef(null);
   const formRef = useRef(null);
+  const [deshacer, setDeshacer] = useState(null);
+  const deshacerTimer = useRef(null);
 
   /* si venimos de "Agendar" en la lista de espera, precargar cliente y servicios,
      y saltar a un día hábil por si el día que se estaba mirando está cerrado */
@@ -654,6 +661,8 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
     setF((prev) => ({ ...prev, clienteId: desdeEspera.clienteId, servicios: desdeEspera.servicios, estilistaId: "", modo: "base", busca: "" }));
     setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }, [desdeEspera]);
+
+  useEffect(() => () => clearTimeout(deshacerTimer.current), []);
 
   const estilistaDe = (t) => estilistas.find((e) => e.id === t.estilistaId);
   const colorEst = (id) => SWATCHES[Math.max(0, estilistas.findIndex((e) => e.id === id)) % SWATCHES.length];
@@ -706,7 +715,19 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
     if (desdeEspera) limpiarDesdeEspera();
     setF({ ...f, clienteId: "", servicios: [], estilistaId: "", busca: "", nombreNuevo: "", telNuevo: "" });
   };
-  const borrar = (id) => guardar({ ...datos, turnos: turnos.filter((t) => t.id !== id) });
+  const borrar = (id) => {
+    const t = turnos.find((x) => x.id === id);
+    guardar({ ...datos, turnos: turnos.filter((x) => x.id !== id) });
+    setDeshacer(t);
+    clearTimeout(deshacerTimer.current);
+    deshacerTimer.current = setTimeout(() => setDeshacer(null), 8000);
+  };
+  const restaurar = () => {
+    if (!deshacer) return;
+    guardar({ ...datos, turnos: [...turnos, deshacer] });
+    setDeshacer(null);
+    clearTimeout(deshacerTimer.current);
+  };
 
   const mover = (dir) => {
     if (vista === "mes") {
@@ -1005,6 +1026,13 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
                 {turnosDe(d).length > 0 && <span className="mcnt">{turnosDe(d).length}</span>}
               </div>
             ))}
+        </div>
+      )}
+
+      {deshacer && (
+        <div className="toast">
+          <span>Turno de {clienteDe(deshacer)?.nombre || "cliente eliminado"} borrado.</span>
+          <button onClick={restaurar}>Deshacer</button>
         </div>
       )}
     </>
