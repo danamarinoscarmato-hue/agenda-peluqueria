@@ -743,7 +743,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
     });
     const futuros = coinciden.filter((t) => t.fecha >= hoyISO()).sort((a, b) => (a.fecha + a.hora).localeCompare(b.fecha + b.hora));
     const pasados = coinciden.filter((t) => t.fecha < hoyISO()).sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
-    return [...futuros, ...pasados].slice(0, 8);
+    return [...futuros, ...pasados];
   })();
 
   return (
@@ -761,30 +761,40 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
         </div>
       </div>
 
-      <div className="fila" style={{ marginBottom: 14 }}>
-        <div className="campo" style={{ position: "relative" }}>
-          <label>Buscar cliente</label>
-          <input placeholder="Nombre del cliente…" value={busq} onChange={(e) => setBusq(e.target.value)} />
-          {busqResultados.length > 0 && (
-            <div className="sugerencias">
+      <div className="card" style={{ marginBottom: 14 }}>
+        <h3 style={{ marginBottom: 12 }}>Buscar</h3>
+        <div className="fila">
+          <div className="campo">
+            <label>Cliente</label>
+            <input placeholder="Nombre del cliente…" value={busq} onChange={(e) => setBusq(e.target.value)} />
+          </div>
+          <div className="campo" style={{ maxWidth: 180 }}>
+            <label>Ir a una fecha</label>
+            <input type="date" value={fechaSel} onChange={(e) => e.target.value && irADia(e.target.value)} />
+          </div>
+        </div>
+        {busq.trim() !== "" && (
+          busqResultados.length === 0 ? (
+            <div className="vacio" style={{ paddingTop: 14 }}>Sin turnos para ese nombre.</div>
+          ) : (
+            <div style={{ marginTop: 6 }}>
               {busqResultados.map((t) => {
                 const c = clienteDe(t);
                 return (
-                  <button key={t.id} className="sug" onClick={() => { irADia(t.fecha); setBusq(""); }}>
-                    {c.nombre} <span className="det">· {fmtFecha(t.fecha)} · {t.hora} hs{t.fecha < hoyISO() ? " (pasado)" : ""}</span>
-                  </button>
+                  <div className="item" key={t.id} style={{ cursor: "pointer" }} onClick={() => { irADia(t.fecha); setBusq(""); }}>
+                    <div>
+                      <div className="nom">{c.nombre}</div>
+                      <div className="det">{c.telefono || "sin teléfono"}</div>
+                    </div>
+                    <div className="det" style={{ textAlign: "right" }}>
+                      {fmtFecha(t.fecha)} · {t.hora} hs{t.fecha < hoyISO() ? " · pasado" : ""}
+                    </div>
+                  </div>
                 );
               })}
             </div>
-          )}
-          {busq.trim() !== "" && busqResultados.length === 0 && (
-            <div className="det" style={{ marginTop: 6 }}>Sin turnos para ese nombre.</div>
-          )}
-        </div>
-        <div className="campo" style={{ maxWidth: 180 }}>
-          <label>Ir a una fecha</label>
-          <input type="date" value={fechaSel} onChange={(e) => e.target.value && irADia(e.target.value)} />
-        </div>
+          )
+        )}
       </div>
 
       <div className="vtit" style={{ marginBottom: 12 }}>{titulo}</div>
