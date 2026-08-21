@@ -638,6 +638,8 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   const [f, setF] = useState({ clienteId: "", hora: "10:00", servicios: [], estilistaId: "", modo: "base", nombreNuevo: "", telNuevo: "", busca: "", fecha: hoyISO() });
   const [editId, setEditId] = useState(null);
   const [busq, setBusq] = useState("");
+  const [mostrarBusq, setMostrarBusq] = useState(false);
+  const buscadorRef = useRef(null);
   const formRef = useRef(null);
 
   /* si venimos de "Agendar" en la lista de espera, precargar cliente y servicios,
@@ -758,15 +760,20 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
           <button className="navb" onClick={() => mover(-1)}>‹</button>
           <button className="btn sec" onClick={() => setFechaSel(hoyISO())}>Hoy</button>
           <button className="navb" onClick={() => mover(1)}>›</button>
+          <button className="navb" title="Buscar" onClick={() => {
+            setMostrarBusq((v) => !v);
+            setTimeout(() => buscadorRef.current?.focus(), 50);
+          }}>🔍</button>
         </div>
       </div>
 
+      {mostrarBusq && (
       <div className="card" style={{ marginBottom: 14 }}>
         <h3 style={{ marginBottom: 12 }}>Buscar</h3>
         <div className="fila">
           <div className="campo">
             <label>Cliente</label>
-            <input placeholder="Nombre del cliente…" value={busq} onChange={(e) => setBusq(e.target.value)} />
+            <input ref={buscadorRef} placeholder="Nombre del cliente…" value={busq} onChange={(e) => setBusq(e.target.value)} />
           </div>
           <div className="campo" style={{ maxWidth: 180 }}>
             <label>Ir a una fecha</label>
@@ -796,6 +803,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
           )
         )}
       </div>
+      )}
 
       <div className="vtit" style={{ marginBottom: 12 }}>{titulo}</div>
 
