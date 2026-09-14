@@ -760,9 +760,13 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   const busqResultados = (() => {
     const q = busq.trim().toLowerCase();
     if (!q) return [];
+    const qDigits = q.replace(/\D/g, "");
     const coinciden = turnos.filter((t) => {
       const c = clienteDe(t);
-      return c && c.nombre.toLowerCase().includes(q);
+      if (!c) return false;
+      const nombreMatch = c.nombre.toLowerCase().includes(q);
+      const telMatch = qDigits.length > 0 && (c.telefono || "").replace(/\D/g, "").includes(qDigits);
+      return nombreMatch || telMatch;
     });
     const futuros = coinciden.filter((t) => t.fecha >= hoyISO()).sort((a, b) => (a.fecha + a.hora).localeCompare(b.fecha + b.hora));
     const pasados = coinciden.filter((t) => t.fecha < hoyISO()).sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
@@ -793,8 +797,8 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
         <h3 style={{ marginBottom: 12 }}>Buscar</h3>
         <div className="fila">
           <div className="campo">
-            <label>Cliente</label>
-            <input ref={buscadorRef} placeholder="Nombre del cliente…" value={busq} onChange={(e) => setBusq(e.target.value)} />
+            <label>Cliente o teléfono</label>
+            <input ref={buscadorRef} placeholder="Nombre o teléfono…" value={busq} onChange={(e) => setBusq(e.target.value)} />
           </div>
           <div className="campo" style={{ maxWidth: 180 }}>
             <label>Ir a una fecha</label>
@@ -803,7 +807,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
         </div>
         {busq.trim() !== "" && (
           busqResultados.length === 0 ? (
-            <div className="vacio" style={{ paddingTop: 14 }}>Sin turnos para ese nombre.</div>
+            <div className="vacio" style={{ paddingTop: 14 }}>Sin turnos para ese nombre o teléfono.</div>
           ) : (
             <div style={{ marginTop: 6 }}>
               {busqResultados.map((t) => {
