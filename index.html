@@ -648,6 +648,9 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   const formRef = useRef(null);
   const [deshacer, setDeshacer] = useState(null);
   const deshacerTimer = useRef(null);
+  const [dragId, setDragId] = useState(null);
+  const [dragDeltaY, setDragDeltaY] = useState(0);
+  const dragRef = useRef({ id: null, startY: 0, moved: false });
 
   /* si venimos de "Agendar" en la lista de espera, precargar cliente y servicios,
      y saltar a un día hábil por si el día que se estaba mirando está cerrado */
@@ -727,6 +730,20 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
     guardar({ ...datos, turnos: [...turnos, deshacer] });
     setDeshacer(null);
     clearTimeout(deshacerTimer.current);
+  };
+
+  /* arrastrar un turno verticalmente en la vista Día para cambiarle el horario;
+     un movimiento chico se toma como toque normal (abre edición) */
+  const finalizarArrastre = (t, dy, moved, hpx) => {
+    setDragId(null);
+    setDragDeltaY(0);
+    if (!moved) { empezarEdicion(t); return; }
+    const iniOriginal = aMin(t.hora);
+    let nuevoIni = iniOriginal + Math.round((dy / hpx) * 60 / 30) * 30;
+    nuevoIni = Math.max(600, Math.min(1110, nuevoIni));
+    if (nuevoIni !== iniOriginal) {
+      guardar({ ...datos, turnos: turnos.map((x) => x.id === t.id ? { ...x, hora: aHora(nuevoIni), recordado: false } : x) });
+    }
   };
 
   const mover = (dir) => {
@@ -975,17 +992,48 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
                     {conPos.map(({ t, ini, fin, lane }) => {
                       const c = clienteDe(t);
                       const est = estilistaDe(t);
+                      const arrastrando = dragId === t.id;
+                      const horaPreview = arrastrando
+                        ? aHora(Math.max(600, Math.min(1110, aMin(t.hora) + Math.round((dragDeltaY / HPX) * 60 / 30) * 30)))
+                        : null;
                       return (
-                        <div key={t.id} className={"tl-turno" + (t.id === editId ? " edit" : "")} onClick={() => empezarEdicion(t)} style={{
-                          top: (ini - 600) / 60 * HPX + 1,
-                          height: Math.max((fin - ini) / 60 * HPX - 3, 24),
-                          left: nL > 1 ? lane * LANE_PX : `${lane * (100 / nL)}%`,
-                          width: nL > 1 ? LANE_PX - 6 : `calc(${100 / nL}% - 5px)`,
-                          ...(est ? (esAldi(est) ? { borderLeftColor: ALDI_BORDE, background: ALDI_FONDO } : { borderLeftColor: colorEst(est.id) }) : {}),
-                        }}>
+                        <div key={t.id} className={"tl-turno" + (t.id === editId ? " edit" : "")}
+                          onPointerDown={(e) => {
+                            e.currentTarget.setPointerCapture(e.pointerId);
+                            dragRef.current = { id: t.id, startY: e.clientY, moved: false };
+                            setDragId(t.id);
+                            setDragDeltaY(0);
+                          }}
+                          onPointerMove={(e) => {
+                            if (dragRef.current.id !== t.id) return;
+                            const dy = e.clientY - dragRef.current.startY;
+                            if (Math.abs(dy) > 4) dragRef.current.moved = true;
+                            setDragDeltaY(dy);
+                          }}
+                          onPointerUp={(e) => {
+                            if (dragRef.current.id !== t.id) return;
+                            const { moved } = dragRef.current;
+                            const dy = e.clientY - dragRef.current.startY;
+                            dragRef.current = { id: null, startY: 0, moved: false };
+                            finalizarArrastre(t, dy, moved, HPX);
+                          }}
+                          onPointerCancel={() => {
+                            dragRef.current = { id: null, startY: 0, moved: false };
+                            setDragId(null);
+                            setDragDeltaY(0);
+                          }}
+                          style={{
+                            top: (ini - 600) / 60 * HPX + 1 + (arrastrando ? dragDeltaY : 0),
+                            height: Math.max((fin - ini) / 60 * HPX - 3, 24),
+                            left: nL > 1 ? lane * LANE_PX : `${lane * (100 / nL)}%`,
+                            width: nL > 1 ? LANE_PX - 6 : `calc(${100 / nL}% - 5px)`,
+                            touchAction: "none",
+                            ...(arrastrando ? { zIndex: 15, boxShadow: "0 6px 16px rgba(0,0,0,.3)", opacity: .92, cursor: "grabbing" } : {}),
+                            ...(est ? (esAldi(est) ? { borderLeftColor: ALDI_BORDE, background: ALDI_FONDO } : { borderLeftColor: colorEst(est.id) }) : {}),
+                          }}>
                           <div className="tn">{c ? c.nombre : "(cliente eliminado)"}{t.recordado ? " ✓" : ""}</div>
-                          <div className="ts">{labelDe(t, servicios)}{est ? ` · ${est.nombre}` : ""}</div>
-                          <button className="x" onClick={(e) => { e.stopPropagation(); borrar(t.id); }} title="Borrar turno">×</button>
+                          <div className="ts">{arrastrando ? `→ ${horaPreview} hs` : `${labelDe(t, servicios)}${est ? ` · ${est.nombre}` : ""}`}</div>
+                          <button className="x" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); borrar(t.id); }} title="Borrar turno">×</button>
                         </div>
                       );
                     })}
