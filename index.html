@@ -999,7 +999,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
                       return (
                         <div key={t.id} className={"tl-turno" + (t.id === editId ? " edit" : "")}
                           onPointerDown={(e) => {
-                            e.currentTarget.setPointerCapture(e.pointerId);
+                            try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
                             dragRef.current = { id: t.id, startY: e.clientY, moved: false };
                             setDragId(t.id);
                             setDragDeltaY(0);
