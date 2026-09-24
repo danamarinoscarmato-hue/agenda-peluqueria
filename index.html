@@ -148,7 +148,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--acento)}
 .tilde{width:46px;height:46px;border-radius:50%;border:2px solid var(--tinta);background:#fff;color:var(--tinta);font-size:20px;font-weight:700;cursor:pointer;flex-shrink:0;font-family:'Karla'}
 .tilde:hover{background:var(--acento-suave)}
 .tilde:disabled{opacity:.4;cursor:default}
-.tl-turno{cursor:pointer}
+.tl-turno{cursor:pointer;-webkit-touch-callout:none}
 .tl-turno.edit{outline:2px solid var(--tinta)}
 .selcli{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1.5px solid var(--acento);background:var(--acento-suave);border-radius:9px;padding:9px 11px}
 .sugerencias{position:absolute;left:0;right:0;top:100%;z-index:20;background:#fff;border:1.5px solid var(--linea);border-radius:9px;margin-top:4px;box-shadow:0 6px 18px rgba(51,34,46,.14);overflow:hidden}
@@ -266,28 +266,39 @@ function SalonApp() {
     }).catch(() => {});
   }, []);
 
-  const normalizar = (u) => {
-    let x = (u || "").trim().replace(/\/+$/, "");
-    if (x && !x.endsWith(".json")) x += "/.json";
-    return x;
-  };
+  /* Solo devuelve la base (sin ".json" al final): clientes/turnos/config/mod/
+     listaEspera se leen y escriben cada uno por su cuenta (ver traerRemoto y
+     subirRemoto), porque las reglas de Firebase autorizan cada nodo por
+     separado y no la raíz completa (ahí conviven otros datos que no son de
+     esta app, con acceso restringido). */
+  const normalizar = (u) => (u || "").trim().replace(/\/+$/, "");
 
-  const traerRemoto = async (url) => {
+  const NODOS_SYNC = ["clientes", "turnos", "config", "mod", "listaEspera"];
+
+  const traerRemoto = async (base) => {
+    if (!base) { setSyncEstado("error"); return null; }
     try {
-      const r = await fetch(url);
-      if (!r.ok) throw new Error();
-      const d = await r.json();
+      const valores = await Promise.all(
+        NODOS_SYNC.map((n) =>
+          fetch(base + "/" + n + ".json").then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+        )
+      );
+      const d = {};
+      NODOS_SYNC.forEach((n, i) => { d[n] = valores[i]; });
       setSyncEstado("ok");
-      return d && d.config ? sanear(d) : null;
+      return d.config ? sanear(d) : null;
     } catch {
       setSyncEstado("error");
       return null;
     }
   };
 
-  const subirRemoto = async (url, d) => {
+  const subirRemoto = async (base, d) => {
+    if (!base) { setSyncEstado("error"); return; }
     try {
-      const r = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(d) });
+      const cuerpo = {};
+      NODOS_SYNC.forEach((n) => { cuerpo[n] = d[n]; });
+      const r = await fetch(base + "/.json", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) });
       setSyncEstado(r.ok ? "ok" : "error");
     } catch {
       setSyncEstado("error");
@@ -633,6 +644,9 @@ function AccesoAdmin({ onOk, onCancelar }) {
 /* ─── Agenda ─── */
 const DIAS_LAB = ["mar", "mié", "jue", "vie", "sáb"];
 
+const ARRASTRE_ESPERA_MS = 400;      /* cuánto hay que mantener presionado un turno para poder moverlo */
+const ARRASTRE_TOLERANCIA_PX = 10;   /* si el dedo se mueve más que esto antes de tiempo, es un scroll */
+
 function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) {
   const { clientes, turnos } = datos;
   const listaEspera = datos.listaEspera || [];
@@ -650,7 +664,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   const deshacerTimer = useRef(null);
   const [dragId, setDragId] = useState(null);
   const [dragDeltaY, setDragDeltaY] = useState(0);
-  const dragRef = useRef({ id: null, startY: 0, moved: false });
+  const dragRef = useRef({ id: null });
 
   /* si venimos de "Agendar" en la lista de espera, precargar cliente y servicios,
      y saltar a un día hábil por si el día que se estaba mirando está cerrado */
@@ -666,6 +680,15 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   }, [desdeEspera]);
 
   useEffect(() => () => clearTimeout(deshacerTimer.current), []);
+
+  /* mientras se arrastra un turno la pantalla no debe scrollear. El listener queda
+     registrado siempre (y solo frena cuando hay un arrastre activo) porque iOS
+     ignora preventDefault si no había uno registrado al empezar el toque */
+  useEffect(() => {
+    const frenarScroll = (ev) => { if (dragRef.current.active && ev.cancelable) ev.preventDefault(); };
+    window.addEventListener("touchmove", frenarScroll, { passive: false });
+    return () => { window.removeEventListener("touchmove", frenarScroll); clearTimeout(dragRef.current.timer); };
+  }, []);
 
   const estilistaDe = (t) => estilistas.find((e) => e.id === t.estilistaId);
   const colorEst = (id) => SWATCHES[Math.max(0, estilistas.findIndex((e) => e.id === id)) % SWATCHES.length];
@@ -732,12 +755,27 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
     clearTimeout(deshacerTimer.current);
   };
 
-  /* arrastrar un turno verticalmente en la vista Día para cambiarle el horario;
-     un movimiento chico se toma como toque normal (abre edición) */
-  const finalizarArrastre = (t, dy, moved, hpx) => {
+  /* Arrastrar un turno para cambiarle el horario (vista Día).
+     Con el dedo hay que MANTENER PRESIONADO el turno un momento; si el dedo se
+     mueve antes, es un scroll normal y el turno no se toca. Un toque corto abre
+     la edición. Con el mouse alcanza con arrastrar. */
+  const cancelarArrastre = () => {
+    clearTimeout(dragRef.current.timer);
+    dragRef.current = { id: null };
     setDragId(null);
     setDragDeltaY(0);
-    if (!moved) { empezarEdicion(t); return; }
+  };
+  const activarArrastre = (id) => {
+    const r = dragRef.current;
+    if (r.id !== id || r.active) return;
+    r.active = true;
+    try { r.el.setPointerCapture(r.pointerId); } catch {}
+    try { navigator.vibrate && navigator.vibrate(25); } catch {}
+    setDragId(id);
+    setDragDeltaY(0);
+  };
+  const finalizarArrastre = (t, dy, moved, hpx) => {
+    if (!moved) return;
     const iniOriginal = aMin(t.hora);
     let nuevoIni = iniOriginal + Math.round((dy / hpx) * 60 / 30) * 30;
     nuevoIni = Math.max(600, Math.min(1110, nuevoIni));
@@ -999,35 +1037,40 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
                       return (
                         <div key={t.id} className={"tl-turno" + (t.id === editId ? " edit" : "")}
                           onPointerDown={(e) => {
-                            try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
-                            dragRef.current = { id: t.id, startY: e.clientY, moved: false };
-                            setDragId(t.id);
-                            setDragDeltaY(0);
+                            if (e.button > 0) return;
+                            clearTimeout(dragRef.current.timer);
+                            const r = { id: t.id, startX: e.clientX, startY: e.clientY, pointerId: e.pointerId, pointerType: e.pointerType, el: e.currentTarget, active: false, moved: false, timer: null };
+                            dragRef.current = r;
+                            if (e.pointerType !== "mouse") r.timer = setTimeout(() => activarArrastre(t.id), ARRASTRE_ESPERA_MS);
                           }}
                           onPointerMove={(e) => {
-                            if (dragRef.current.id !== t.id) return;
-                            const dy = e.clientY - dragRef.current.startY;
-                            if (Math.abs(dy) > 4) dragRef.current.moved = true;
+                            const r = dragRef.current;
+                            if (r.id !== t.id) return;
+                            const dx = e.clientX - r.startX, dy = e.clientY - r.startY;
+                            if (!r.active) {
+                              if (r.pointerType === "mouse") { if ((e.buttons & 1) && Math.abs(dy) > 6) activarArrastre(t.id); }
+                              else if (Math.hypot(dx, dy) > ARRASTRE_TOLERANCIA_PX) cancelarArrastre();
+                              if (!dragRef.current.active) return;
+                            }
+                            if (Math.abs(dy) > 4) r.moved = true;
                             setDragDeltaY(dy);
                           }}
                           onPointerUp={(e) => {
-                            if (dragRef.current.id !== t.id) return;
-                            const { moved } = dragRef.current;
-                            const dy = e.clientY - dragRef.current.startY;
-                            dragRef.current = { id: null, startY: 0, moved: false };
-                            finalizarArrastre(t, dy, moved, HPX);
+                            const r = dragRef.current;
+                            if (r.id !== t.id) return;
+                            const dy = e.clientY - r.startY;
+                            const eraArrastre = r.active, movio = r.moved;
+                            cancelarArrastre();
+                            if (eraArrastre) finalizarArrastre(t, dy, movio, HPX);
+                            else empezarEdicion(t);
                           }}
-                          onPointerCancel={() => {
-                            dragRef.current = { id: null, startY: 0, moved: false };
-                            setDragId(null);
-                            setDragDeltaY(0);
-                          }}
+                          onPointerCancel={() => { if (dragRef.current.id === t.id) cancelarArrastre(); }}
+                          onContextMenu={(e) => { if (dragRef.current.id === t.id) e.preventDefault(); }}
                           style={{
                             top: (ini - 600) / 60 * HPX + 1 + (arrastrando ? dragDeltaY : 0),
                             height: Math.max((fin - ini) / 60 * HPX - 3, 24),
                             left: nL > 1 ? lane * LANE_PX : `${lane * (100 / nL)}%`,
                             width: nL > 1 ? LANE_PX - 6 : `calc(${100 / nL}% - 5px)`,
-                            touchAction: "none",
                             ...(arrastrando ? { zIndex: 15, boxShadow: "0 6px 16px rgba(0,0,0,.3)", opacity: .92, cursor: "grabbing" } : {}),
                             ...(est ? (esAldi(est) ? { borderLeftColor: ALDI_BORDE, background: ALDI_FONDO } : { borderLeftColor: colorEst(est.id) }) : {}),
                           }}>
@@ -1455,18 +1498,34 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado, notifOn,
   const [mb, setMb] = useState("");
   const mailBackup = config.mailBackup || MAIL_BACKUP_DEFAULT;
 
-  const exportar = () => {
+  const exportar = async () => {
+    const nombre = `respaldo-peluqueria-${hoyISO()}.json`;
     const blob = new Blob([JSON.stringify(datos, null, 2)], { type: "application/json" });
+    /* En el iPhone, con la app instalada en la pantalla de inicio, la descarga
+       clásica (crear un link y simular el clic) muchas veces no guarda nada.
+       Si el teléfono tiene el "compartir" nativo, se ofrece primero: ahí se
+       puede guardar en Archivos, mandarlo por mail, AirDrop, etc. */
+    if (navigator.canShare) {
+      try {
+        const archivo = new File([blob], nombre, { type: "application/json" });
+        if (navigator.canShare({ files: [archivo] })) {
+          await navigator.share({ files: [archivo], title: nombre });
+          return;
+        }
+      } catch (e) {
+        if (e && e.name === "AbortError") return; // se canceló el cuadro de compartir: no insistir
+      }
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `respaldo-peluqueria-${hoyISO()}.json`;
+    a.download = nombre;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const enviarPorMail = () => {
-    exportar();
+  const enviarPorMail = async () => {
+    await exportar();
     const archivo = `respaldo-peluqueria-${hoyISO()}.json`;
     const asunto = encodeURIComponent(`Copia de seguridad · ${config.salon} · ${hoyISO()}`);
     const cuerpo = encodeURIComponent(`Copia de seguridad del ${hoyISO()}.\n\nSe descargó el archivo "${archivo}" a este dispositivo — antes de enviar, adjuntalo a este mail (buscalo en la carpeta de Descargas).`);
