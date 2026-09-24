@@ -110,6 +110,15 @@ input:focus,select:focus,textarea:focus{border-color:var(--acento)}
   align-items:center;gap:14px;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:40;font-size:14px}
 .toast button{background:none;border:none;color:#fff;font-weight:700;font-family:'Karla';cursor:pointer;font-size:14px;
   text-decoration:underline;flex-shrink:0;padding:0}
+.anuncioFondo{position:fixed;inset:0;background:rgba(20,20,20,.55);display:flex;align-items:center;justify-content:center;
+  padding:24px;z-index:60}
+.anuncio{background:var(--tarjeta);border-radius:16px;padding:26px 24px;max-width:360px;width:100%;text-align:center;
+  box-shadow:0 20px 50px rgba(0,0,0,.3);position:relative}
+.anuncio .emoji{font-size:34px;margin-bottom:10px}
+.anuncio h3{font-size:19px;margin-bottom:8px}
+.anuncio p{font-size:14.5px;color:var(--tinta2);line-height:1.4;margin-bottom:20px}
+.anuncio .fila{justify-content:center}
+.anuncio .cerrar{position:absolute;top:10px;right:12px;background:none;border:none;font-size:18px;color:var(--tinta2);cursor:pointer;padding:4px}
 .vnav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;flex-wrap:wrap}
 .vtit{font-family:'Fraunces',serif;font-size:17px;font-weight:600;text-transform:capitalize}
 .vsel{display:flex;background:var(--acento-suave);border-radius:9px;padding:3px;gap:2px}
@@ -248,6 +257,7 @@ function SalonApp() {
   const [pedirAdmin, setPedirAdmin] = useState(false);
   const [ahoraTick, setAhoraTick] = useState(() => Date.now());
   const [backupOculto, setBackupOculto] = useState("");
+  const [avisoBackupCerrado, setAvisoBackupCerrado] = useState(false);
   const [notifOn, setNotifOn] = useState(false);
   const [desdeEspera, setDesdeEspera] = useState(null);
 
@@ -516,25 +526,30 @@ function SalonApp() {
   /* ─── recordatorio semanal de copia de seguridad: sábados desde las 19:00 ─── */
   const ahoraD = new Date(ahoraTick);
   const hoyClave = ahoraD.toISOString().slice(0, 10);
-  const mostrarBackup = ahoraD.getDay() === 6 && ahoraD.getHours() >= 19 && backupOculto !== hoyClave;
+  const mostrarBackup = ahoraD.getDay() === 6 && ahoraD.getHours() >= 19 && backupOculto !== hoyClave && !avisoBackupCerrado;
 
   /* ─── vistas ─── */
   return (
     <div className="app">
       <style>{css}</style>
-      <div className="wrap">
-        {mostrarBackup && (
-          <div className="aviso" style={{ marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span>📋 Es sábado — no te olvides de hacer la copia de seguridad semanal.</span>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn mini" onClick={() => setTab("config")}>Ir a Ajustes</button>
-              <button className="link" onClick={async () => {
+      {mostrarBackup && (
+        <div className="anuncioFondo">
+          <div className="anuncio">
+            <button className="cerrar" onClick={() => setAvisoBackupCerrado(true)} aria-label="Cerrar">✕</button>
+            <div className="emoji">📋</div>
+            <h3>Copia de seguridad semanal</h3>
+            <p>Es sábado — no te olvides de descargar la copia de seguridad de hoy.</p>
+            <div className="fila">
+              <button className="btn" onClick={() => { setTab("config"); setAvisoBackupCerrado(true); }}>Ir a Ajustes</button>
+              <button className="btn sec" onClick={async () => {
                 try { await window.storage.set("backup-oculto-hasta", hoyClave); } catch {}
                 setBackupOculto(hoyClave);
               }}>Ya la hice</button>
             </div>
           </div>
-        )}
+        </div>
+      )}
+      <div className="wrap">
         <div className="header">
           <div className="swatches">{SWATCHES.map((c) => <div key={c} className="sw" style={{ background: c }} />)}</div>
           <div className="marca">
