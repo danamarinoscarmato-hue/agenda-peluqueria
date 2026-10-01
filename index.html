@@ -66,18 +66,27 @@ button,input,select,textarea,a,.tab,.tl-turno,.mcel,.diacol{touch-action:manipul
 input,textarea{user-select:text;-webkit-user-select:text}
 .wrap{max-width:880px;margin:0 auto;padding:0 16px}
 h1,h2,h3{font-family:'Fraunces',serif}
-.header{padding:calc(26px + env(safe-area-inset-top)) 0 0}
+.header{padding:calc(60px + env(safe-area-inset-top)) 0 0}
 .swatches{display:flex;gap:6px;margin-bottom:14px}
 .sw{width:26px;height:12px;border-radius:3px}
 .marca{display:flex;align-items:center;gap:12px}
 .logo{width:48px;height:48px;border-radius:12px;object-fit:cover;flex-shrink:0}
 .titulo{font-size:30px;font-weight:700;letter-spacing:-.5px}
 .sub{color:var(--tinta2);margin-top:2px;font-size:14px}
-.tabs{display:flex;gap:4px;margin:20px 0 22px;border-bottom:1.5px solid var(--linea)}
-.tab{background:none;border:none;font-family:'Karla';font-weight:700;font-size:14.5px;color:var(--tinta2);
-  padding:10px 14px;cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-1.5px}
-.tab.on{color:var(--acento);border-color:var(--acento)}
-.tab .n{background:var(--acento);color:#fff;border-radius:99px;font-size:11px;padding:1px 7px;margin-left:5px}
+.menuBtn{position:fixed;top:calc(10px + env(safe-area-inset-top));left:16px;z-index:50;
+  display:flex;align-items:center;gap:7px;height:40px;border-radius:10px;border:1.5px solid var(--linea);
+  background:#fff;cursor:pointer;font-family:'Karla';font-weight:700;font-size:14px;color:var(--tinta);
+  padding:0 12px 0 11px;box-shadow:0 2px 8px rgba(0,0,0,.1)}
+.menuBtn .ico{font-size:17px;line-height:1}
+.menuFondo{position:fixed;inset:0;z-index:49;background:transparent;border:none;padding:0}
+.menuDesplegable{position:fixed;top:calc(54px + env(safe-area-inset-top));left:16px;z-index:50;
+  background:var(--tarjeta);border:1px solid var(--linea);border-radius:14px;padding:8px;
+  min-width:215px;box-shadow:0 12px 32px rgba(0,0,0,.18)}
+.itemMenu{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;
+  text-align:left;background:none;border:none;font-family:'Karla';font-weight:700;font-size:14.5px;
+  color:var(--tinta2);padding:10px 12px;border-radius:9px;cursor:pointer}
+.itemMenu.on{color:var(--acento);background:var(--acento-suave)}
+.tab .n,.itemMenu .n,.menuBtn .n{background:var(--acento);color:#fff;border-radius:99px;font-size:11px;padding:1px 7px;margin-left:5px}
 .card{background:var(--tarjeta);border:1px solid var(--linea);border-radius:14px;padding:18px;margin-bottom:14px}
 .fila{display:flex;gap:10px;flex-wrap:wrap}
 label{font-size:12.5px;font-weight:700;color:var(--tinta2);display:block;margin-bottom:4px}
@@ -258,6 +267,7 @@ function SalonApp() {
   const [ahoraTick, setAhoraTick] = useState(() => Date.now());
   const [backupOculto, setBackupOculto] = useState("");
   const [avisoBackupCerrado, setAvisoBackupCerrado] = useState(false);
+  const [menuAbierto, setMenuAbierto] = useState(false);
   const [notifOn, setNotifOn] = useState(false);
   const [desdeEspera, setDesdeEspera] = useState(null);
 
@@ -502,6 +512,11 @@ function SalonApp() {
     .filter((e) => (new Date(hoyISO() + "T12:00:00") - new Date(e.fecha + "T12:00:00")) / 86400000 < 7)
     .sort((a, b) => a.fecha.localeCompare(b.fecha));
 
+  /* secciones del menú: igual que antes, ahora en un desplegable en vez de pestañas arriba */
+  const secciones = [["agenda", "Agenda"], ["clientes", "Clientes"], ["nuevos", "Por agregar"], ["record", "Recordatorios"], ["espera", "Lista de espera"], ...(adminAplica ? [["config", "Ajustes"]] : [])];
+  const nDe = (k) => k === "record" ? pendientes.length : k === "nuevos" ? provisionales.length : k === "espera" ? esperaVigente.length : 0;
+  const tituloDe = (k) => (secciones.find(([kk]) => kk === k) || [, "Menú"])[1];
+
   const mensajeDe = (t) => {
     const c = clienteDe(t);
     const est = (config.estilistas || []).find((e) => e.id === t.estilistaId);
@@ -549,6 +564,25 @@ function SalonApp() {
           </div>
         </div>
       )}
+      <button className="menuBtn" onClick={() => setMenuAbierto((v) => !v)}>
+        <span className="ico">☰</span>{tituloDe(tab)}
+      </button>
+      {menuAbierto && (
+        <React.Fragment>
+          <button className="menuFondo" onClick={() => setMenuAbierto(false)} aria-label="Cerrar menú" />
+          <div className="menuDesplegable">
+            {secciones.map(([k, l]) => {
+              const n = nDe(k);
+              return (
+                <button key={k} className={"itemMenu" + (tab === k ? " on" : "")}
+                  onClick={() => { setTab(k); setClienteAbierto(null); setMenuAbierto(false); }}>
+                  {l}{n > 0 && <span className="n">{n}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </React.Fragment>
+      )}
       <div className="wrap">
         <div className="header">
           <div className="swatches">{SWATCHES.map((c) => <div key={c} className="sw" style={{ background: c }} />)}</div>
@@ -557,17 +591,6 @@ function SalonApp() {
             <h1 className="titulo">{config.salon}</h1>
           </div>
           <p className="sub">Agenda · clientes · recordatorios</p>
-        </div>
-
-        <div className="tabs">
-          {[["agenda", "Agenda"], ["clientes", "Clientes"], ["nuevos", "Por agregar"], ["record", "Recordatorios"], ["espera", "Lista de espera"], ...(adminAplica ? [["config", "Ajustes"]] : [])].map(([k, l]) => {
-            const n = k === "record" ? pendientes.length : k === "nuevos" ? provisionales.length : k === "espera" ? esperaVigente.length : 0;
-            return (
-              <button key={k} className={"tab" + (tab === k ? " on" : "")} onClick={() => { setTab(k); setClienteAbierto(null); }}>
-                {l}{n > 0 && <span className="n">{n}</span>}
-              </button>
-            );
-          })}
         </div>
 
         {tab === "agenda" && <Agenda datos={datos} guardar={guardar} clienteDe={clienteDe} desdeEspera={desdeEspera} limpiarDesdeEspera={() => setDesdeEspera(null)} />}
