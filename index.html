@@ -73,18 +73,18 @@ h1,h2,h3{font-family:'Fraunces',serif}
 .logo{width:48px;height:48px;border-radius:12px;object-fit:cover;flex-shrink:0}
 .titulo{font-size:30px;font-weight:700;letter-spacing:-.5px}
 .sub{color:var(--tinta2);margin-top:2px;font-size:14px}
-.menuBtn{position:fixed;top:calc(10px + env(safe-area-inset-top));left:16px;z-index:50;
-  display:flex;align-items:center;gap:7px;height:40px;border-radius:10px;border:1.5px solid var(--linea);
-  background:#fff;cursor:pointer;font-family:'Karla';font-weight:700;font-size:14px;color:var(--tinta);
-  padding:0 12px 0 11px;box-shadow:0 2px 8px rgba(0,0,0,.1)}
-.menuBtn .ico{font-size:17px;line-height:1}
-.menuFondo{position:fixed;inset:0;z-index:49;background:transparent;border:none;padding:0}
-.menuDesplegable{position:fixed;top:calc(54px + env(safe-area-inset-top));left:16px;z-index:50;
-  background:var(--tarjeta);border:1px solid var(--linea);border-radius:14px;padding:8px;
-  min-width:215px;box-shadow:0 12px 32px rgba(0,0,0,.18)}
+.menuBtn{position:fixed;top:calc(10px + env(safe-area-inset-top));left:16px;z-index:70;
+  display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;
+  border:1.5px solid var(--linea);background:#fff;cursor:pointer;font-size:18px;color:var(--tinta);
+  box-shadow:0 2px 8px rgba(0,0,0,.1)}
+.menuFondo{position:fixed;inset:0;z-index:55;background:rgba(20,20,20,.5);border:none;padding:0}
+.sidebarMenu{position:fixed;top:0;left:0;height:100%;width:min(80vw,300px);z-index:60;
+  background:var(--tarjeta);box-shadow:0 0 30px rgba(0,0,0,.3);display:flex;flex-direction:column;
+  gap:2px;padding:calc(62px + env(safe-area-inset-top)) 14px 20px;overflow-y:auto}
+.sidebarMenu h2{font-family:'Fraunces',serif;font-size:21px;margin:0 10px 16px;padding-top:4px}
 .itemMenu{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;
-  text-align:left;background:none;border:none;font-family:'Karla';font-weight:700;font-size:14.5px;
-  color:var(--tinta2);padding:10px 12px;border-radius:9px;cursor:pointer}
+  text-align:left;background:none;border:none;font-family:'Karla';font-weight:700;font-size:15.5px;
+  color:var(--tinta2);padding:13px 12px;border-radius:10px;cursor:pointer}
 .itemMenu.on{color:var(--acento);background:var(--acento-suave)}
 .tab .n,.itemMenu .n,.menuBtn .n{background:var(--acento);color:#fff;border-radius:99px;font-size:11px;padding:1px 7px;margin-left:5px}
 .card{background:var(--tarjeta);border:1px solid var(--linea);border-radius:14px;padding:18px;margin-bottom:14px}
@@ -512,10 +512,9 @@ function SalonApp() {
     .filter((e) => (new Date(hoyISO() + "T12:00:00") - new Date(e.fecha + "T12:00:00")) / 86400000 < 7)
     .sort((a, b) => a.fecha.localeCompare(b.fecha));
 
-  /* secciones del menú: igual que antes, ahora en un desplegable en vez de pestañas arriba */
-  const secciones = [["agenda", "Agenda"], ["clientes", "Clientes"], ["nuevos", "Por agregar"], ["record", "Recordatorios"], ["espera", "Lista de espera"], ...(adminAplica ? [["config", "Ajustes"]] : [])];
+  /* secciones del menú lateral (antes pestañas horizontales) */
+  const secciones = [["agenda", "Agenda"], ["clientes", "Clientes"], ["nuevos", "Por agregar"], ["record", "Recordatorios"], ["espera", "Lista de espera"], ...(adminAplica ? [["facturacion", "Facturación"], ["config", "Ajustes"]] : [])];
   const nDe = (k) => k === "record" ? pendientes.length : k === "nuevos" ? provisionales.length : k === "espera" ? esperaVigente.length : 0;
-  const tituloDe = (k) => (secciones.find(([kk]) => kk === k) || [, "Menú"])[1];
 
   const mensajeDe = (t) => {
     const c = clienteDe(t);
@@ -564,13 +563,12 @@ function SalonApp() {
           </div>
         </div>
       )}
-      <button className="menuBtn" onClick={() => setMenuAbierto((v) => !v)}>
-        <span className="ico">☰</span>{tituloDe(tab)}
-      </button>
+      <button className="menuBtn" onClick={() => setMenuAbierto((v) => !v)} aria-label="Abrir menú">☰</button>
       {menuAbierto && (
         <React.Fragment>
           <button className="menuFondo" onClick={() => setMenuAbierto(false)} aria-label="Cerrar menú" />
-          <div className="menuDesplegable">
+          <div className="sidebarMenu">
+            <h2>{config.salon}</h2>
             {secciones.map(([k, l]) => {
               const n = nDe(k);
               return (
@@ -600,6 +598,7 @@ function SalonApp() {
         {tab === "nuevos" && <PorAgregar datos={datos} guardar={guardar} abrir={(id) => { setTab("clientes"); setClienteAbierto(id); }} />}
         {tab === "espera" && <ListaEspera datos={datos} guardar={guardar} esperaVigente={esperaVigente} irAAgendar={(entrada) => { setDesdeEspera(entrada); setTab("agenda"); }} />}
         {tab === "record" && <Recordatorios pendientes={pendientes} clienteDe={clienteDe} mensajeDe={mensajeDe} enviarWsp={enviarWsp} marcarRecordado={marcarRecordado} servicios={config.servicios || []} estilistas={config.estilistas || []} />}
+        {tab === "facturacion" && adminAplica && <Facturacion datos={datos} />}
         {tab === "config" && adminAplica && <Ajustes datos={datos} guardar={guardar} syncUrl={syncUrl} cambiarSyncUrl={cambiarSyncUrl} syncEstado={syncEstado} notifOn={notifOn} pedirNotif={pedirNotif} apagarNotif={apagarNotif} />}
 
         {!adminAplica && (
@@ -1522,12 +1521,118 @@ function PorAgregar({ datos, guardar, abrir }) {
   );
 }
 
+/* ─── Facturación: lo cobrado por día/semana/mes según los precios de cada servicio ─── */
+function Facturacion({ datos }) {
+  const { turnos, clientes, config } = datos;
+  const servicios = config.servicios || [];
+  const estilistas = config.estilistas || [];
+  const servicioDe = (id) => servicios.find((s) => s.id === id);
+  const montoDe = (t) => (t.servicios || []).reduce((acc, sid) => acc + ((servicioDe(sid) || {}).precio || 0), 0);
+  const clienteDe = (t) => clientes.find((c) => c.id === t.clienteId);
+  const nombreEst = (id) => (estilistas.find((e) => e.id === id) || {}).nombre || "";
+
+  const [vista, setVista] = useState("dia");
+  const [fechaSel, setFechaSel] = useState(hoyISO());
+  const [filtroEst, setFiltroEst] = useState("todos");
+
+  const mover = (dir) => {
+    if (vista === "mes") {
+      const d = new Date(fechaSel + "T12:00:00");
+      d.setDate(1); d.setMonth(d.getMonth() + dir);
+      setFechaSel(d.toISOString().slice(0, 10));
+    } else if (vista === "semana") setFechaSel(addDias(fechaSel, dir * 7));
+    else setFechaSel(addDias(fechaSel, dir));
+  };
+
+  const lunes = lunesDe(fechaSel);
+  const dSel = new Date(fechaSel + "T12:00:00");
+
+  let desde, hasta, titulo;
+  if (vista === "dia") {
+    desde = hasta = fechaSel;
+    titulo = fmtFecha(fechaSel);
+  } else if (vista === "semana") {
+    desde = lunes; hasta = addDias(lunes, 6);
+    titulo = `Semana del ${new Date(lunes + "T12:00:00").getDate()} al ${new Date(addDias(lunes, 6) + "T12:00:00").getDate()} de ${dSel.toLocaleDateString("es-AR", { month: "long" })}`;
+  } else {
+    desde = new Date(dSel.getFullYear(), dSel.getMonth(), 1).toISOString().slice(0, 10);
+    hasta = new Date(dSel.getFullYear(), dSel.getMonth() + 1, 0).toISOString().slice(0, 10);
+    titulo = dSel.toLocaleDateString("es-AR", { month: "long", year: "numeric" });
+  }
+
+  const hoy = hoyISO();
+  const enRangoTodos = turnos
+    .filter((t) => t.fecha >= desde && t.fecha <= hasta && t.fecha <= hoy)
+    .sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
+  const enRango = filtroEst === "todos" ? enRangoTodos : enRangoTodos.filter((t) => t.estilistaId === filtroEst);
+
+  const total = enRango.reduce((acc, t) => acc + montoDe(t), 0);
+  const porEstilista = {};
+  enRangoTodos.forEach((t) => { porEstilista[t.estilistaId] = (porEstilista[t.estilistaId] || 0) + montoDe(t); });
+  const fmtPlata = (n) => "$" + n.toLocaleString("es-AR");
+
+  return (
+    <>
+      <div className="vnav">
+        <div className="vsel">
+          {[["dia", "Día"], ["semana", "Semana"], ["mes", "Mes"]].map(([k, l]) => (
+            <button key={k} className={vista === k ? "on" : ""} onClick={() => setVista(k)}>{l}</button>
+          ))}
+        </div>
+        <div className="nav">
+          <button className="navb" onClick={() => mover(-1)}>‹</button>
+          <button className="btn sec" onClick={() => setFechaSel(hoyISO())}>Hoy</button>
+          <button className="navb" onClick={() => mover(1)}>›</button>
+        </div>
+      </div>
+      <div className="vtit" style={{ marginBottom: 12 }}>{titulo}</div>
+
+      {estilistas.length > 0 && (
+        <div className="vsel" style={{ marginBottom: 12, width: "fit-content" }}>
+          <button className={filtroEst === "todos" ? "on" : ""} onClick={() => setFiltroEst("todos")}>General</button>
+          {estilistas.map((e) => (
+            <button key={e.id} className={filtroEst === e.id ? "on" : ""} onClick={() => setFiltroEst(e.id)}>{e.nombre}</button>
+          ))}
+        </div>
+      )}
+
+      <div className="card" style={{ textAlign: "center" }}>
+        <div className="det">{filtroEst === "todos" ? "Total facturado" : `Facturado por ${nombreEst(filtroEst)}`}</div>
+        <div style={{ fontFamily: "'Fraunces'", fontSize: 32, fontWeight: 700, color: "var(--acento)" }}>{fmtPlata(total)}</div>
+        {filtroEst === "todos" && estilistas.length > 0 && (
+          <div className="fila" style={{ justifyContent: "center", marginTop: 10, flexWrap: "wrap" }}>
+            {estilistas.map((e) => (
+              <span key={e.id} className="chip">{e.nombre}: {fmtPlata(porEstilista[e.id] || 0)}</span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        {enRango.length === 0 ? <div className="vacio">No hay turnos realizados en este período.</div> : enRango.map((t) => {
+          const c = clienteDe(t);
+          const nombresServ = (t.servicios || []).map((sid) => (servicioDe(sid) || {}).nombre || sid).join(", ");
+          return (
+            <div className="item" key={t.id}>
+              <div>
+                <div className="nom">{c ? c.nombre : "—"}</div>
+                <div className="det">{fmtFecha(t.fecha)} · {t.hora} hs · {nombresServ}{nombreEst(t.estilistaId) && " · " + nombreEst(t.estilistaId)}</div>
+              </div>
+              <div className="hora">{fmtPlata(montoDe(t))}</div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 /* ─── Ajustes ─── */
 function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado, notifOn, pedirNotif, apagarNotif }) {
   const { config } = datos;
   const servicios = config.servicios || [];
   const estilistas = config.estilistas || [];
-  const [ns, setNs] = useState({ nombre: "", min: 30 });
+  const [ns, setNs] = useState({ nombre: "", min: 30, precio: "", precioEfectivo: "" });
   const [ne, setNe] = useState("");
   const [msgImport, setMsgImport] = useState("");
   const [url, setUrl] = useState(syncUrl || "");
@@ -1590,8 +1695,8 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado, notifOn,
   const guardarServ = (lista) => guardar({ ...datos, config: { ...config, servicios: lista } });
   const agregarServ = () => {
     if (!ns.nombre.trim()) return;
-    guardarServ([...servicios, { id: uid(), nombre: ns.nombre.trim(), min: Math.max(15, +ns.min || 30) }]);
-    setNs({ nombre: "", min: 30 });
+    guardarServ([...servicios, { id: uid(), nombre: ns.nombre.trim(), min: Math.max(15, +ns.min || 30), precio: Math.max(0, +ns.precio || 0), precioEfectivo: Math.max(0, +ns.precioEfectivo || 0) }]);
+    setNs({ nombre: "", min: 30, precio: "", precioEfectivo: "" });
   };
 
   const guardarEst = (lista) => guardar({ ...datos, config: { ...config, estilistas: lista } });
@@ -1679,21 +1784,39 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado, notifOn,
         <h3 style={{ marginBottom: 4 }}>Servicios y duración</h3>
         <div className="det" style={{ marginBottom: 10 }}>El tiempo que ocupa cada servicio en la agenda. Podés cambiarlo cuando quieras.</div>
         {servicios.map((s) => (
-          <div className="item" key={s.id}>
-            <div className="nom">{s.nombre}</div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="number" min={15} step={15} value={s.min} style={{ width: 76 }}
-                onChange={(e) => guardarServ(servicios.map((x) => x.id === s.id ? { ...x, min: Math.max(15, +e.target.value || 15) } : x))} />
-              <span className="det">min</span>
-              <button className="link" onClick={() => guardarServ(servicios.filter((x) => x.id !== s.id))}>Borrar</button>
+          <div className="item" key={s.id} style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <div className="nom">{s.nombre}</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input type="number" min={15} step={15} value={s.min} style={{ width: 64 }}
+                  onChange={(e) => guardarServ(servicios.map((x) => x.id === s.id ? { ...x, min: Math.max(15, +e.target.value || 15) } : x))} />
+                <span className="det">min</span>
+                <button className="link" onClick={() => guardarServ(servicios.filter((x) => x.id !== s.id))}>Borrar</button>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span className="det">Precio $</span>
+                <input type="number" min={0} step={100} value={s.precio || 0} style={{ width: 86 }}
+                  onChange={(e) => guardarServ(servicios.map((x) => x.id === s.id ? { ...x, precio: Math.max(0, +e.target.value || 0) } : x))} />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span className="det">Precio efectivo $</span>
+                <input type="number" min={0} step={100} value={s.precioEfectivo || 0} style={{ width: 86 }}
+                  onChange={(e) => guardarServ(servicios.map((x) => x.id === s.id ? { ...x, precioEfectivo: Math.max(0, +e.target.value || 0) } : x))} />
+              </div>
             </div>
           </div>
         ))}
         <div className="fila" style={{ marginTop: 14 }}>
           <div className="campo"><label>Nuevo servicio</label>
             <input placeholder="Ej: Alisado" value={ns.nombre} onChange={(e) => setNs({ ...ns, nombre: e.target.value })} /></div>
-          <div className="campo" style={{ maxWidth: 120 }}><label>Minutos</label>
+          <div className="campo" style={{ maxWidth: 90 }}><label>Minutos</label>
             <input type="number" min={15} step={15} value={ns.min} onChange={(e) => setNs({ ...ns, min: e.target.value })} /></div>
+          <div className="campo" style={{ maxWidth: 110 }}><label>Precio ($)</label>
+            <input type="number" min={0} step={100} value={ns.precio} placeholder="0" onChange={(e) => setNs({ ...ns, precio: e.target.value })} /></div>
+          <div className="campo" style={{ maxWidth: 140 }}><label>Precio efectivo ($)</label>
+            <input type="number" min={0} step={100} value={ns.precioEfectivo} placeholder="0" onChange={(e) => setNs({ ...ns, precioEfectivo: e.target.value })} /></div>
         </div>
         <button className="btn" style={{ marginTop: 12 }} onClick={agregarServ} disabled={!ns.nombre.trim()}>Agregar servicio</button>
       </div>
