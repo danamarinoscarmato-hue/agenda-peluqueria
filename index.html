@@ -691,8 +691,9 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   const estilistas = datos.config.estilistas || [];
   const [vista, setVista] = useState("dia");
   const [fechaSel, setFechaSel] = useState(hoyISO());
-  const [f, setF] = useState({ clienteId: "", hora: "10:00", servicios: [], estilistaId: "", modo: "base", nombreNuevo: "", telNuevo: "", busca: "", fecha: hoyISO() });
+  const [f, setF] = useState({ clienteId: "", hora: "10:00", servicios: [], estilistaId: "", modo: "base", nombreNuevo: "", telNuevo: "", busca: "", buscaServ: "", mostrarServ: false, fecha: hoyISO() });
   const [editId, setEditId] = useState(null);
+  const [formAbierto, setFormAbierto] = useState(false);
   const [busq, setBusq] = useState("");
   const [mostrarBusq, setMostrarBusq] = useState(false);
   const buscadorRef = useRef(null);
@@ -708,6 +709,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   useEffect(() => {
     if (!desdeEspera) return;
     setEditId(null);
+    setFormAbierto(true);
     setVista("dia");
     let d = hoyISO();
     while (cerrado(d)) d = addDias(d, 1);
@@ -732,11 +734,13 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
 
   const empezarEdicion = (t) => {
     setEditId(t.id);
+    setFormAbierto(true);
     setF({ clienteId: t.clienteId, hora: t.hora, servicios: t.servicios || [], estilistaId: t.estilistaId || "", modo: "base", nombreNuevo: "", telNuevo: "", busca: "", fecha: t.fecha });
     setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   };
   const cancelarEdicion = () => {
     setEditId(null);
+    setFormAbierto(false);
     setF({ ...f, clienteId: "", servicios: [], estilistaId: "", busca: "" });
   };
   const estReq = estilistas.length > 0;
@@ -777,6 +781,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
     }
     if (desdeEspera) limpiarDesdeEspera();
     setF({ ...f, clienteId: "", servicios: [], estilistaId: "", busca: "", nombreNuevo: "", telNuevo: "" });
+    setFormAbierto(false);
   };
   const borrar = (id) => {
     const t = turnos.find((x) => x.id === id);
@@ -941,8 +946,14 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
         const LANE_PX = 150;
         return (
           <>
+            {!editId && !formAbierto ? (
+              <button className="btn" style={{ marginBottom: 14, width: "100%" }} onClick={() => setFormAbierto(true)}>+ Nuevo turno para este día</button>
+            ) : (
             <div className="card" ref={formRef}>
-              <h3 style={{ marginBottom: 12 }}>{editId ? "Modificar turno" : "Nuevo turno para este día"}</h3>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <h3>{editId ? "Modificar turno" : "Nuevo turno para este día"}</h3>
+                {!editId && <button className="link" onClick={() => setFormAbierto(false)}>Cerrar</button>}
+              </div>
               {!editId && (
                 <div className="vsel" style={{ marginBottom: 12, width: "fit-content" }}>
                   <button className={f.modo !== "nuevo" ? "on" : ""} onClick={() => setF({ ...f, modo: "base" })}>De la base</button>
@@ -1005,13 +1016,40 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
               {f.modo === "nuevo" && nombreDup(f.nombreNuevo, clientes) && (
                 <div className="aviso">⚠️ Ya existe "{f.nombreNuevo.trim()}" entre tus clientes. Si es la misma persona, elegila en "De la base" para no duplicarla.</div>
               )}
-              <label>Servicios (tocá para elegir uno o más)</label>
-              <div className="servchips">
-                {servicios.map((s) => (
-                  <button key={s.id} className={"schip" + (f.servicios.includes(s.id) ? " on" : "")}
-                    onClick={() => toggleServ(s.id)}>{s.nombre} · {s.min}′</button>
-                ))}
-              </div>
+              <label>Servicios</label>
+              {(() => {
+                const serviciosSel = f.servicios.map((id) => servicios.find((s) => s.id === id)).filter(Boolean);
+                const disponibles = servicios.filter((s) => !f.servicios.includes(s.id));
+                const q = (f.buscaServ || "").trim().toLowerCase();
+                const coincidenciasServ = (q ? disponibles.filter((s) => s.nombre.toLowerCase().includes(q)) : disponibles).slice(0, 8);
+                return (
+                  <div className="campo" style={{ position: "relative" }}>
+                    {serviciosSel.length > 0 && (
+                      <div className="servchips" style={{ marginBottom: 8 }}>
+                        {serviciosSel.map((s) => (
+                          <button key={s.id} className="schip on" onClick={() => toggleServ(s.id)}>{s.nombre} · {s.min}′ ✕</button>
+                        ))}
+                      </div>
+                    )}
+                    <input placeholder="Buscar o elegir servicio…" value={f.buscaServ || ""}
+                      onFocus={() => setF((act) => ({ ...act, mostrarServ: true }))}
+                      onBlur={() => setTimeout(() => setF((act) => ({ ...act, mostrarServ: false })), 150)}
+                      onChange={(e) => setF({ ...f, buscaServ: e.target.value, mostrarServ: true })} />
+                    {f.mostrarServ && coincidenciasServ.length > 0 && (
+                      <div className="sugerencias">
+                        {coincidenciasServ.map((s) => (
+                          <button key={s.id} className="sug" onClick={() => setF((act) => ({ ...act, servicios: [...act.servicios, s.id], buscaServ: "" }))}>
+                            {s.nombre} <span className="det">· {s.min}′</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {f.mostrarServ && q !== "" && coincidenciasServ.length === 0 && (
+                      <div className="det" style={{ marginTop: 6 }}>No hay servicios que coincidan.</div>
+                    )}
+                  </div>
+                );
+              })()}
               {estilistas.length > 0 && (
                 <>
                   <label style={{ marginTop: 12 }}>Estilista</label>
@@ -1041,6 +1079,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
               )}
               {editId && cerrado(f.fecha) && <div className="aviso" style={{ marginTop: 10, marginBottom: 0 }}>⚠️ Esa fecha cae domingo o lunes, cuando el local está cerrado.</div>}
             </div>
+            )}
 
             <div className="card" style={{ paddingRight: 10 }}>
               <div className={nL > 1 ? "tl-scroll" : undefined}>
