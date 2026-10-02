@@ -237,6 +237,7 @@ const sanear = (d) => ({
   clientes: (d.clientes || []).map((c) => ({ ...c, notas: c.notas || [] })),
   turnos: d.turnos || [],
   listaEspera: d.listaEspera || [],
+  cobros: d.cobros || [],
 });
 
 /* Une los recordatorios ya enviados entre dos versiones de los datos: si en
@@ -293,7 +294,7 @@ function SalonApp() {
      esta app, con acceso restringido). */
   const normalizar = (u) => (u || "").trim().replace(/\/+$/, "");
 
-  const NODOS_SYNC = ["clientes", "turnos", "config", "mod", "listaEspera"];
+  const NODOS_SYNC = ["clientes", "turnos", "config", "mod", "listaEspera", "cobros"];
 
   const traerRemoto = async (base) => {
     if (!base) { setSyncEstado("error"); return null; }
@@ -344,7 +345,7 @@ function SalonApp() {
         if (remoto && (!base || (remoto.mod || 0) >= (base.mod || 0))) base = unirRecordados(remoto, local);
         else if (remoto) base = unirRecordados(base, remoto);
       }
-      if (!base) base = { clientes: [], turnos: [], listaEspera: [], config: { salon: "Mi peluquería", servicios: SERV_DEF } };
+      if (!base) base = { clientes: [], turnos: [], listaEspera: [], cobros: [], config: { salon: "Mi peluquería", servicios: SERV_DEF } };
       if (!base.config.servicios) base.config.servicios = SERV_DEF;
       setDatos(base);
       try { await window.storage.set("salon-datos-v1", JSON.stringify(base)); } catch {}
@@ -687,6 +688,7 @@ const ARRASTRE_TOLERANCIA_PX = 10;   /* si el dedo se mueve más que esto antes 
 function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) {
   const { clientes, turnos } = datos;
   const listaEspera = datos.listaEspera || [];
+  const cobros = datos.cobros || [];
   const servicios = datos.config.servicios || [];
   const estilistas = datos.config.estilistas || [];
   const [vista, setVista] = useState("dia");
@@ -694,6 +696,8 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   const [f, setF] = useState({ clienteId: "", hora: "10:00", servicios: [], estilistaId: "", modo: "base", nombreNuevo: "", telNuevo: "", busca: "", buscaServ: "", mostrarServ: false, fecha: hoyISO() });
   const [editId, setEditId] = useState(null);
   const [formAbierto, setFormAbierto] = useState(false);
+  const [mostrarCobro, setMostrarCobro] = useState(false);
+  const [fc, setFc] = useState({ servicios: [], buscaServ: "", mostrarServ: false, metodoPago: "efectivo", estilistaId: "" });
   const [busq, setBusq] = useState("");
   const [mostrarBusq, setMostrarBusq] = useState(false);
   const buscadorRef = useRef(null);
@@ -735,6 +739,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   const empezarEdicion = (t) => {
     setEditId(t.id);
     setFormAbierto(true);
+    setMostrarCobro(false);
     setF({ clienteId: t.clienteId, hora: t.hora, servicios: t.servicios || [], estilistaId: t.estilistaId || "", modo: "base", nombreNuevo: "", telNuevo: "", busca: "", fecha: t.fecha });
     setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   };
@@ -783,6 +788,21 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
     setF({ ...f, clienteId: "", servicios: [], estilistaId: "", busca: "", nombreNuevo: "", telNuevo: "" });
     setFormAbierto(false);
   };
+
+  const toggleServCobro = (id) => setFc((act) => ({
+    ...act,
+    servicios: act.servicios.includes(id) ? act.servicios.filter((x) => x !== id) : [...act.servicios, id],
+  }));
+  const precioCobro = (s) => fc.metodoPago === "efectivo" ? (s.precioEfectivo || s.precio || 0) : (s.precio || 0);
+  const totalCobro = fc.servicios.reduce((acc, id) => { const s = servicios.find((x) => x.id === id); return acc + (s ? precioCobro(s) : 0); }, 0);
+  const registrarCobro = () => {
+    if (fc.servicios.length === 0 || (estReq && !fc.estilistaId)) return;
+    const nuevo = { id: uid(), fecha: hoyISO(), servicios: fc.servicios, metodoPago: fc.metodoPago, estilistaId: fc.estilistaId, monto: totalCobro };
+    guardar({ ...datos, cobros: [...cobros, nuevo] });
+    setFc({ servicios: [], buscaServ: "", mostrarServ: false, metodoPago: "efectivo", estilistaId: "" });
+    setMostrarCobro(false);
+  };
+
   const borrar = (id) => {
     const t = turnos.find((x) => x.id === id);
     guardar({ ...datos, turnos: turnos.filter((x) => x.id !== id) });
@@ -873,10 +893,14 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   return (
     <>
       <div className="vnav">
-        <div className="vsel">
-          {[["dia", "Día"], ["semana", "Semana"], ["mes", "Mes"]].map(([k, l]) => (
-            <button key={k} className={vista === k ? "on" : ""} onClick={() => setVista(k)}>{l}</button>
-          ))}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div className="vsel">
+            {[["dia", "Día"], ["semana", "Semana"], ["mes", "Mes"]].map(([k, l]) => (
+              <button key={k} className={vista === k ? "on" : ""} onClick={() => setVista(k)}>{l}</button>
+            ))}
+          </div>
+          <button className={"btn" + (mostrarCobro ? "" : " sec")}
+            onClick={() => { setMostrarCobro((v) => !v); setFormAbierto(false); }}>💵 Cobrar</button>
         </div>
         <div className="nav">
           <button className="navb" onClick={() => mover(-1)}>‹</button>
@@ -888,6 +912,66 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
           }}>🔍</button>
         </div>
       </div>
+
+      {mostrarCobro && (() => {
+        const serviciosSelC = fc.servicios.map((id) => servicios.find((s) => s.id === id)).filter(Boolean);
+        const disponiblesC = servicios.filter((s) => !fc.servicios.includes(s.id));
+        const qc = (fc.buscaServ || "").trim().toLowerCase();
+        const coincidenciasC = (qc ? disponiblesC.filter((s) => s.nombre.toLowerCase().includes(qc)) : disponiblesC).slice(0, 8);
+        return (
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h3>Registrar cobro</h3>
+              <button className="link" onClick={() => setMostrarCobro(false)}>Cerrar</button>
+            </div>
+            <label>Servicios</label>
+            <div className="campo" style={{ position: "relative" }}>
+              {serviciosSelC.length > 0 && (
+                <div className="servchips" style={{ marginBottom: 8 }}>
+                  {serviciosSelC.map((s) => (
+                    <button key={s.id} className="schip on" onClick={() => toggleServCobro(s.id)}>{s.nombre} ✕</button>
+                  ))}
+                </div>
+              )}
+              <input placeholder="Buscar o elegir servicio…" value={fc.buscaServ || ""}
+                onFocus={() => setFc((act) => ({ ...act, mostrarServ: true }))}
+                onBlur={() => setTimeout(() => setFc((act) => ({ ...act, mostrarServ: false })), 150)}
+                onChange={(e) => setFc((act) => ({ ...act, buscaServ: e.target.value, mostrarServ: true }))} />
+              {fc.mostrarServ && coincidenciasC.length > 0 && (
+                <div className="sugerencias">
+                  {coincidenciasC.map((s) => (
+                    <button key={s.id} className="sug" onClick={() => setFc((act) => ({ ...act, servicios: [...act.servicios, s.id], buscaServ: "" }))}>
+                      {s.nombre} <span className="det">· ${s.precio || 0} / ${s.precioEfectivo || s.precio || 0} efectivo</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {estilistas.length > 0 && (
+              <>
+                <label style={{ marginTop: 12 }}>Estilista</label>
+                <div className="servchips">
+                  {estilistas.map((e) => (
+                    <button key={e.id} className={"schip" + (fc.estilistaId === e.id ? " on" : "")}
+                      onClick={() => setFc((act) => ({ ...act, estilistaId: e.id }))}>{e.nombre}</button>
+                  ))}
+                </div>
+              </>
+            )}
+            <label style={{ marginTop: 12 }}>Cómo paga</label>
+            <div className="vsel" style={{ width: "fit-content" }}>
+              {[["efectivo", "Efectivo"], ["tarjeta", "Tarjeta/transferencia"]].map(([k, l]) => (
+                <button key={k} className={fc.metodoPago === k ? "on" : ""} onClick={() => setFc((act) => ({ ...act, metodoPago: k }))}>{l}</button>
+              ))}
+            </div>
+            <div className="durinfo" style={{ marginTop: 14, fontSize: 20, fontWeight: 700 }}>
+              Total a cobrar: ${totalCobro.toLocaleString("es-AR")}
+            </div>
+            <button className="btn" style={{ marginTop: 12 }} onClick={registrarCobro}
+              disabled={fc.servicios.length === 0 || (estReq && !fc.estilistaId)}>Registrar cobro</button>
+          </div>
+        );
+      })()}
 
       {mostrarBusq && (
       <div className="card" style={{ marginBottom: 14 }}>
@@ -947,7 +1031,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
         return (
           <>
             {!editId && !formAbierto ? (
-              <button className="btn" style={{ marginBottom: 14, width: "100%" }} onClick={() => setFormAbierto(true)}>+ Nuevo turno para este día</button>
+              <button className="btn" style={{ marginBottom: 14, width: "100%" }} onClick={() => { setFormAbierto(true); setMostrarCobro(false); }}>+ Nuevo turno para este día</button>
             ) : (
             <div className="card" ref={formRef}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -1562,12 +1646,11 @@ function PorAgregar({ datos, guardar, abrir }) {
 
 /* ─── Facturación: lo cobrado por día/semana/mes según los precios de cada servicio ─── */
 function Facturacion({ datos }) {
-  const { turnos, clientes, config } = datos;
+  const cobros = datos.cobros || [];
+  const config = datos.config;
   const servicios = config.servicios || [];
   const estilistas = config.estilistas || [];
   const servicioDe = (id) => servicios.find((s) => s.id === id);
-  const montoDe = (t) => (t.servicios || []).reduce((acc, sid) => acc + ((servicioDe(sid) || {}).precio || 0), 0);
-  const clienteDe = (t) => clientes.find((c) => c.id === t.clienteId);
   const nombreEst = (id) => (estilistas.find((e) => e.id === id) || {}).nombre || "";
 
   const [vista, setVista] = useState("dia");
@@ -1599,16 +1682,28 @@ function Facturacion({ datos }) {
     titulo = dSel.toLocaleDateString("es-AR", { month: "long", year: "numeric" });
   }
 
-  const hoy = hoyISO();
-  const enRangoTodos = turnos
-    .filter((t) => t.fecha >= desde && t.fecha <= hasta && t.fecha <= hoy)
-    .sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
-  const enRango = filtroEst === "todos" ? enRangoTodos : enRangoTodos.filter((t) => t.estilistaId === filtroEst);
+  const enRangoTodos = cobros
+    .filter((c) => c.fecha >= desde && c.fecha <= hasta)
+    .sort((a, b) => (b.fecha).localeCompare(a.fecha));
+  const enRango = filtroEst === "todos" ? enRangoTodos : enRangoTodos.filter((c) => c.estilistaId === filtroEst);
 
-  const total = enRango.reduce((acc, t) => acc + montoDe(t), 0);
+  const total = enRango.reduce((acc, c) => acc + (c.monto || 0), 0);
   const porEstilista = {};
-  enRangoTodos.forEach((t) => { porEstilista[t.estilistaId] = (porEstilista[t.estilistaId] || 0) + montoDe(t); });
+  enRangoTodos.forEach((c) => { porEstilista[c.estilistaId] = (porEstilista[c.estilistaId] || 0) + (c.monto || 0); });
   const fmtPlata = (n) => "$" + n.toLocaleString("es-AR");
+
+  /* planilla "Efectivo": caja física del día (no lo que entra por tarjeta o
+     transferencia). Si ese día trabajó alguien además de Emi, se aclara abajo
+     cuánto cobró esa persona (lo de Emi no hace falta aclararlo). */
+  const enRangoEfectivo = enRango.filter((c) => c.metodoPago === "efectivo");
+  const porDia = {};
+  const porDiaEst = {};
+  enRangoEfectivo.forEach((c) => {
+    porDia[c.fecha] = (porDia[c.fecha] || 0) + (c.monto || 0);
+    porDiaEst[c.fecha] = porDiaEst[c.fecha] || {};
+    porDiaEst[c.fecha][c.estilistaId] = (porDiaEst[c.fecha][c.estilistaId] || 0) + (c.monto || 0);
+  });
+  const diasConCobro = Object.keys(porDia).sort((a, b) => b.localeCompare(a));
 
   return (
     <>
@@ -1636,7 +1731,7 @@ function Facturacion({ datos }) {
       )}
 
       <div className="card" style={{ textAlign: "center" }}>
-        <div className="det">{filtroEst === "todos" ? "Total facturado" : `Facturado por ${nombreEst(filtroEst)}`}</div>
+        <div className="det">{filtroEst === "todos" ? "Total ingresado" : `Ingresado por ${nombreEst(filtroEst)}`}</div>
         <div style={{ fontFamily: "'Fraunces'", fontSize: 32, fontWeight: 700, color: "var(--acento)" }}>{fmtPlata(total)}</div>
         {filtroEst === "todos" && estilistas.length > 0 && (
           <div className="fila" style={{ justifyContent: "center", marginTop: 10, flexWrap: "wrap" }}>
@@ -1647,17 +1742,36 @@ function Facturacion({ datos }) {
         )}
       </div>
 
-      <div className="card">
-        {enRango.length === 0 ? <div className="vacio">No hay turnos realizados en este período.</div> : enRango.map((t) => {
-          const c = clienteDe(t);
-          const nombresServ = (t.servicios || []).map((sid) => (servicioDe(sid) || {}).nombre || sid).join(", ");
-          return (
-            <div className="item" key={t.id}>
-              <div>
-                <div className="nom">{c ? c.nombre : "—"}</div>
-                <div className="det">{fmtFecha(t.fecha)} · {t.hora} hs · {nombresServ}{nombreEst(t.estilistaId) && " · " + nombreEst(t.estilistaId)}</div>
+      {vista !== "dia" && diasConCobro.length > 0 && (
+        <div className="card">
+          <h3 style={{ marginBottom: 10 }}>Efectivo</h3>
+          {diasConCobro.map((dia) => {
+            const estAclarar = filtroEst === "todos" ? estilistas.filter((e) => e.nombre.trim().toLowerCase() !== "emi" && porDiaEst[dia][e.id]) : [];
+            return (
+              <div className="item" key={dia} style={{ flexDirection: "column", alignItems: "stretch", gap: 2 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div className="nom">{fmtFecha(dia)}</div>
+                  <div className="hora">{fmtPlata(porDia[dia])}</div>
+                </div>
+                {estAclarar.length > 0 && (
+                  <div className="det">{estAclarar.map((e) => `${e.nombre}: ${fmtPlata(porDiaEst[dia][e.id])}`).join(" · ")}</div>
+                )}
               </div>
-              <div className="hora">{fmtPlata(montoDe(t))}</div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="card">
+        {enRango.length === 0 ? <div className="vacio">Todavía no se registraron cobros en este período.</div> : enRango.map((c) => {
+          const nombresServ = (c.servicios || []).map((sid) => (servicioDe(sid) || {}).nombre || sid).join(", ");
+          return (
+            <div className="item" key={c.id}>
+              <div>
+                <div className="nom">{nombresServ || "—"}</div>
+                <div className="det">{fmtFecha(c.fecha)} · {c.metodoPago === "efectivo" ? "Efectivo" : "Tarjeta/transferencia"}{nombreEst(c.estilistaId) && " · " + nombreEst(c.estilistaId)}</div>
+              </div>
+              <div className="hora">{fmtPlata(c.monto || 0)}</div>
             </div>
           );
         })}
