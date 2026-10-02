@@ -514,7 +514,7 @@ function SalonApp() {
     .sort((a, b) => a.fecha.localeCompare(b.fecha));
 
   /* secciones del menú lateral (antes pestañas horizontales) */
-  const secciones = [["agenda", "Agenda"], ["clientes", "Clientes"], ["nuevos", "Por agregar"], ["record", "Recordatorios"], ["espera", "Lista de espera"], ...(adminAplica ? [["facturacion", "Facturación"], ["config", "Ajustes"]] : [])];
+  const secciones = [["agenda", "Agenda"], ["clientes", "Clientes"], ["nuevos", "Por agregar"], ["record", "Recordatorios"], ["espera", "Lista de espera"], ...(adminAplica ? [["facturacion", "Facturación"], ["precios", "Precios"], ["config", "Ajustes"]] : [])];
   const nDe = (k) => k === "record" ? pendientes.length : k === "nuevos" ? provisionales.length : k === "espera" ? esperaVigente.length : 0;
 
   const mensajeDe = (t) => {
@@ -600,6 +600,7 @@ function SalonApp() {
         {tab === "espera" && <ListaEspera datos={datos} guardar={guardar} esperaVigente={esperaVigente} irAAgendar={(entrada) => { setDesdeEspera(entrada); setTab("agenda"); }} />}
         {tab === "record" && <Recordatorios pendientes={pendientes} clienteDe={clienteDe} mensajeDe={mensajeDe} enviarWsp={enviarWsp} marcarRecordado={marcarRecordado} servicios={config.servicios || []} estilistas={config.estilistas || []} />}
         {tab === "facturacion" && adminAplica && <Facturacion datos={datos} guardar={guardar} />}
+        {tab === "precios" && adminAplica && <Precios datos={datos} guardar={guardar} />}
         {tab === "config" && adminAplica && <Ajustes datos={datos} guardar={guardar} syncUrl={syncUrl} cambiarSyncUrl={cambiarSyncUrl} syncEstado={syncEstado} notifOn={notifOn} pedirNotif={pedirNotif} apagarNotif={apagarNotif} />}
 
         {!adminAplica && (
@@ -690,6 +691,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   const listaEspera = datos.listaEspera || [];
   const cobros = datos.cobros || [];
   const servicios = datos.config.servicios || [];
+  const precios = datos.config.precios || [];
   const estilistas = datos.config.estilistas || [];
   const [vista, setVista] = useState("dia");
   const [fechaSel, setFechaSel] = useState(hoyISO());
@@ -794,7 +796,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
     servicios: act.servicios.includes(id) ? act.servicios.filter((x) => x !== id) : [...act.servicios, id],
   }));
   const precioCobro = (s) => fc.metodoPago === "efectivo" ? (s.precioEfectivo || s.precio || 0) : (s.precio || 0);
-  const totalCobro = fc.servicios.reduce((acc, id) => { const s = servicios.find((x) => x.id === id); return acc + (s ? precioCobro(s) : 0); }, 0);
+  const totalCobro = fc.servicios.reduce((acc, id) => { const s = precios.find((x) => x.id === id); return acc + (s ? precioCobro(s) : 0); }, 0);
   const registrarCobro = () => {
     if (fc.servicios.length === 0 || (estReq && !fc.estilistaId)) return;
     const nuevo = { id: uid(), fecha: hoyISO(), servicios: fc.servicios, metodoPago: fc.metodoPago, estilistaId: fc.estilistaId, monto: totalCobro };
@@ -914,8 +916,8 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
       </div>
 
       {mostrarCobro && (() => {
-        const serviciosSelC = fc.servicios.map((id) => servicios.find((s) => s.id === id)).filter(Boolean);
-        const disponiblesC = servicios.filter((s) => !fc.servicios.includes(s.id));
+        const serviciosSelC = fc.servicios.map((id) => precios.find((s) => s.id === id)).filter(Boolean);
+        const disponiblesC = precios.filter((s) => !fc.servicios.includes(s.id));
         const qc = (fc.buscaServ || "").trim().toLowerCase();
         const coincidenciasC = (qc ? disponiblesC.filter((s) => s.nombre.toLowerCase().includes(qc)) : disponiblesC).slice(0, 8);
         return (
@@ -924,6 +926,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
               <h3>Registrar cobro</h3>
               <button className="link" onClick={() => setMostrarCobro(false)}>Cerrar</button>
             </div>
+            {precios.length === 0 && <div className="aviso" style={{ marginBottom: 10 }}>Todavía no cargaste precios — andá a la pestaña "Precios" para agregarlos.</div>}
             <label>Servicios</label>
             <div className="campo" style={{ position: "relative" }}>
               {serviciosSelC.length > 0 && (
@@ -1648,7 +1651,7 @@ function PorAgregar({ datos, guardar, abrir }) {
 function Facturacion({ datos, guardar }) {
   const cobros = datos.cobros || [];
   const config = datos.config;
-  const servicios = config.servicios || [];
+  const servicios = config.precios || [];
   const estilistas = config.estilistas || [];
   const estReq = estilistas.length > 0;
   const servicioDe = (id) => servicios.find((s) => s.id === id);
@@ -1889,12 +1892,89 @@ function Facturacion({ datos, guardar }) {
   );
 }
 
+/* ─── Precios: catálogo de precios para usar al cobrar (no afecta los
+   servicios de la Agenda, que solo necesitan nombre y duración) ─── */
+function Precios({ datos, guardar }) {
+  const config = datos.config;
+  const precios = config.precios || [];
+  const [np, setNp] = useState({ nombre: "", precio: "", precioEfectivo: "" });
+  const [editId, setEditId] = useState(null);
+  const [ep, setEp] = useState({ nombre: "", precio: "", precioEfectivo: "" });
+
+  const guardarLista = (lista) => guardar({ ...datos, config: { ...config, precios: lista } });
+
+  const agregar = () => {
+    if (!np.nombre.trim()) return;
+    guardarLista([...precios, { id: uid(), nombre: np.nombre.trim(), precio: Math.max(0, +np.precio || 0), precioEfectivo: Math.max(0, +np.precioEfectivo || 0) }]);
+    setNp({ nombre: "", precio: "", precioEfectivo: "" });
+  };
+  const empezarEdicion = (p) => { setEditId(p.id); setEp({ nombre: p.nombre, precio: p.precio || 0, precioEfectivo: p.precioEfectivo || 0 }); };
+  const guardarEdicion = () => {
+    if (!ep.nombre.trim()) return;
+    guardarLista(precios.map((p) => p.id === editId ? { ...p, nombre: ep.nombre.trim(), precio: Math.max(0, +ep.precio || 0), precioEfectivo: Math.max(0, +ep.precioEfectivo || 0) } : p));
+    setEditId(null);
+  };
+  const borrar = (id) => { if (editId === id) setEditId(null); guardarLista(precios.filter((p) => p.id !== id)); };
+  const fmtPlata = (n) => "$" + (n || 0).toLocaleString("es-AR");
+
+  return (
+    <>
+      <div className="aviso">Lista de precios para usar en "Cobrar". No afecta los servicios ni las duraciones de la Agenda.</div>
+
+      <div className="card">
+        <h3 style={{ marginBottom: 12 }}>Agregar precio</h3>
+        <div className="fila">
+          <div className="campo"><label>Nombre</label>
+            <input placeholder="Ej: Mechas 1" value={np.nombre} onChange={(e) => setNp({ ...np, nombre: e.target.value })} /></div>
+          <div className="campo" style={{ maxWidth: 120 }}><label>Tarjeta ($)</label>
+            <input type="number" min={0} step={100} value={np.precio} placeholder="0" onChange={(e) => setNp({ ...np, precio: e.target.value })} /></div>
+          <div className="campo" style={{ maxWidth: 120 }}><label>Efectivo ($)</label>
+            <input type="number" min={0} step={100} value={np.precioEfectivo} placeholder="0" onChange={(e) => setNp({ ...np, precioEfectivo: e.target.value })} /></div>
+        </div>
+        <button className="btn" style={{ marginTop: 12 }} onClick={agregar} disabled={!np.nombre.trim()}>Agregar</button>
+      </div>
+
+      <div className="card">
+        {precios.length === 0 ? <div className="vacio">Todavía no cargaste ningún precio.</div> : precios.map((p) => (
+          editId === p.id ? (
+            <div className="item" key={p.id} style={{ flexDirection: "column", alignItems: "stretch", gap: 10 }}>
+              <div className="fila">
+                <div className="campo"><label>Nombre</label>
+                  <input value={ep.nombre} onChange={(e) => setEp({ ...ep, nombre: e.target.value })} /></div>
+                <div className="campo" style={{ maxWidth: 120 }}><label>Tarjeta ($)</label>
+                  <input type="number" min={0} step={100} value={ep.precio} onChange={(e) => setEp({ ...ep, precio: e.target.value })} /></div>
+                <div className="campo" style={{ maxWidth: 120 }}><label>Efectivo ($)</label>
+                  <input type="number" min={0} step={100} value={ep.precioEfectivo} onChange={(e) => setEp({ ...ep, precioEfectivo: e.target.value })} /></div>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button className="btn" onClick={guardarEdicion} disabled={!ep.nombre.trim()}>Guardar</button>
+                <button className="btn sec" onClick={() => setEditId(null)}>Cancelar</button>
+              </div>
+            </div>
+          ) : (
+            <div className="item" key={p.id}>
+              <div className="nom">{p.nombre}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                <div className="det" style={{ textAlign: "right" }}>Tarjeta {fmtPlata(p.precio)}<br />Efectivo {fmtPlata(p.precioEfectivo)}</div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+                  <button className="link" onClick={() => empezarEdicion(p)}>Editar</button>
+                  <button className="link" onClick={() => borrar(p.id)}>Borrar</button>
+                </div>
+              </div>
+            </div>
+          )
+        ))}
+      </div>
+    </>
+  );
+}
+
 /* ─── Ajustes ─── */
 function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado, notifOn, pedirNotif, apagarNotif }) {
   const { config } = datos;
   const servicios = config.servicios || [];
   const estilistas = config.estilistas || [];
-  const [ns, setNs] = useState({ nombre: "", min: 30, precio: "", precioEfectivo: "" });
+  const [ns, setNs] = useState({ nombre: "", min: 30 });
   const [ne, setNe] = useState("");
   const [msgImport, setMsgImport] = useState("");
   const [url, setUrl] = useState(syncUrl || "");
@@ -1957,8 +2037,8 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado, notifOn,
   const guardarServ = (lista) => guardar({ ...datos, config: { ...config, servicios: lista } });
   const agregarServ = () => {
     if (!ns.nombre.trim()) return;
-    guardarServ([...servicios, { id: uid(), nombre: ns.nombre.trim(), min: Math.max(15, +ns.min || 30), precio: Math.max(0, +ns.precio || 0), precioEfectivo: Math.max(0, +ns.precioEfectivo || 0) }]);
-    setNs({ nombre: "", min: 30, precio: "", precioEfectivo: "" });
+    guardarServ([...servicios, { id: uid(), nombre: ns.nombre.trim(), min: Math.max(15, +ns.min || 30) }]);
+    setNs({ nombre: "", min: 30 });
   };
 
   const guardarEst = (lista) => guardar({ ...datos, config: { ...config, estilistas: lista } });
@@ -2046,39 +2126,21 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado, notifOn,
         <h3 style={{ marginBottom: 4 }}>Servicios y duración</h3>
         <div className="det" style={{ marginBottom: 10 }}>El tiempo que ocupa cada servicio en la agenda. Podés cambiarlo cuando quieras.</div>
         {servicios.map((s) => (
-          <div className="item" key={s.id} style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-              <div className="nom">{s.nombre}</div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input type="number" min={15} step={15} value={s.min} style={{ width: 64 }}
-                  onChange={(e) => guardarServ(servicios.map((x) => x.id === s.id ? { ...x, min: Math.max(15, +e.target.value || 15) } : x))} />
-                <span className="det">min</span>
-                <button className="link" onClick={() => guardarServ(servicios.filter((x) => x.id !== s.id))}>Borrar</button>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span className="det">Precio $</span>
-                <input type="number" min={0} step={100} value={s.precio || 0} style={{ width: 86 }}
-                  onChange={(e) => guardarServ(servicios.map((x) => x.id === s.id ? { ...x, precio: Math.max(0, +e.target.value || 0) } : x))} />
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span className="det">Precio efectivo $</span>
-                <input type="number" min={0} step={100} value={s.precioEfectivo || 0} style={{ width: 86 }}
-                  onChange={(e) => guardarServ(servicios.map((x) => x.id === s.id ? { ...x, precioEfectivo: Math.max(0, +e.target.value || 0) } : x))} />
-              </div>
+          <div className="item" key={s.id}>
+            <div className="nom">{s.nombre}</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="number" min={15} step={15} value={s.min} style={{ width: 70 }}
+                onChange={(e) => guardarServ(servicios.map((x) => x.id === s.id ? { ...x, min: Math.max(15, +e.target.value || 15) } : x))} />
+              <span className="det">min</span>
+              <button className="link" onClick={() => guardarServ(servicios.filter((x) => x.id !== s.id))}>Borrar</button>
             </div>
           </div>
         ))}
         <div className="fila" style={{ marginTop: 14 }}>
           <div className="campo"><label>Nuevo servicio</label>
             <input placeholder="Ej: Alisado" value={ns.nombre} onChange={(e) => setNs({ ...ns, nombre: e.target.value })} /></div>
-          <div className="campo" style={{ maxWidth: 90 }}><label>Minutos</label>
+          <div className="campo" style={{ maxWidth: 120 }}><label>Minutos</label>
             <input type="number" min={15} step={15} value={ns.min} onChange={(e) => setNs({ ...ns, min: e.target.value })} /></div>
-          <div className="campo" style={{ maxWidth: 110 }}><label>Precio ($)</label>
-            <input type="number" min={0} step={100} value={ns.precio} placeholder="0" onChange={(e) => setNs({ ...ns, precio: e.target.value })} /></div>
-          <div className="campo" style={{ maxWidth: 140 }}><label>Precio efectivo ($)</label>
-            <input type="number" min={0} step={100} value={ns.precioEfectivo} placeholder="0" onChange={(e) => setNs({ ...ns, precioEfectivo: e.target.value })} /></div>
         </div>
         <button className="btn" style={{ marginTop: 12 }} onClick={agregarServ} disabled={!ns.nombre.trim()}>Agregar servicio</button>
       </div>
