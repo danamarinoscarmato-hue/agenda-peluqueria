@@ -273,6 +273,8 @@ function SalonApp() {
   const [ahoraTick, setAhoraTick] = useState(() => Date.now());
   const [backupOculto, setBackupOculto] = useState("");
   const [avisoBackupCerrado, setAvisoBackupCerrado] = useState(false);
+  const [recordOculto, setRecordOculto] = useState("");
+  const [avisoRecordCerrado, setAvisoRecordCerrado] = useState(false);
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [notifOn, setNotifOn] = useState(false);
   const [desdeEspera, setDesdeEspera] = useState(null);
@@ -284,6 +286,10 @@ function SalonApp() {
 
   useEffect(() => {
     window.storage.get("backup-oculto-hasta").then((r) => { if (r) setBackupOculto(r.value); }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    window.storage.get("record-oculto-hasta").then((r) => { if (r) setRecordOculto(r.value); }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -548,6 +554,11 @@ function SalonApp() {
   const hoyClave = ahoraD.toISOString().slice(0, 10);
   const mostrarBackup = ahoraD.getDay() === 6 && ahoraD.getHours() >= 19 && backupOculto !== hoyClave && !avisoBackupCerrado;
 
+  /* ─── recordatorio diario para enviar los recordatorios de turnos: todos
+     los días desde las 15:30, y solo si hay alguno sin enviar todavía ─── */
+  const horaEnMin = ahoraD.getHours() * 60 + ahoraD.getMinutes();
+  const mostrarRecord = horaEnMin >= 15 * 60 + 30 && pendientes.length > 0 && recordOculto !== hoyClave && !avisoRecordCerrado;
+
   /* ─── vistas ─── */
   return (
     <div className="app">
@@ -565,6 +576,23 @@ function SalonApp() {
                 try { await window.storage.set("backup-oculto-hasta", hoyClave); } catch {}
                 setBackupOculto(hoyClave);
               }}>Ya la hice</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {mostrarRecord && (
+        <div className="anuncioFondo">
+          <div className="anuncio">
+            <button className="cerrar" onClick={() => setAvisoRecordCerrado(true)} aria-label="Cerrar">✕</button>
+            <div className="emoji">⏰</div>
+            <h3>Recordatorios sin enviar</h3>
+            <p>Tenés {pendientes.length} recordatorio{pendientes.length !== 1 ? "s" : ""} listo{pendientes.length !== 1 ? "s" : ""} para mandar — por las dudas, revisalos antes de terminar el día.</p>
+            <div className="fila">
+              <button className="btn" onClick={() => { setTab("record"); setAvisoRecordCerrado(true); }}>Ir a Recordatorios</button>
+              <button className="btn sec" onClick={async () => {
+                try { await window.storage.set("record-oculto-hasta", hoyClave); } catch {}
+                setRecordOculto(hoyClave);
+              }}>Ya los envié</button>
             </div>
           </div>
         </div>
