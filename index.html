@@ -599,7 +599,7 @@ function SalonApp() {
         {tab === "nuevos" && <PorAgregar datos={datos} guardar={guardar} abrir={(id) => { setTab("clientes"); setClienteAbierto(id); }} />}
         {tab === "espera" && <ListaEspera datos={datos} guardar={guardar} esperaVigente={esperaVigente} irAAgendar={(entrada) => { setDesdeEspera(entrada); setTab("agenda"); }} />}
         {tab === "record" && <Recordatorios pendientes={pendientes} clienteDe={clienteDe} mensajeDe={mensajeDe} enviarWsp={enviarWsp} marcarRecordado={marcarRecordado} servicios={config.servicios || []} estilistas={config.estilistas || []} />}
-        {tab === "facturacion" && adminAplica && <Facturacion datos={datos} />}
+        {tab === "facturacion" && adminAplica && <Facturacion datos={datos} guardar={guardar} />}
         {tab === "config" && adminAplica && <Ajustes datos={datos} guardar={guardar} syncUrl={syncUrl} cambiarSyncUrl={cambiarSyncUrl} syncEstado={syncEstado} notifOn={notifOn} pedirNotif={pedirNotif} apagarNotif={apagarNotif} />}
 
         {!adminAplica && (
@@ -1645,17 +1645,57 @@ function PorAgregar({ datos, guardar, abrir }) {
 }
 
 /* ─── Facturación: lo cobrado por día/semana/mes según los precios de cada servicio ─── */
-function Facturacion({ datos }) {
+function Facturacion({ datos, guardar }) {
   const cobros = datos.cobros || [];
   const config = datos.config;
   const servicios = config.servicios || [];
   const estilistas = config.estilistas || [];
+  const estReq = estilistas.length > 0;
   const servicioDe = (id) => servicios.find((s) => s.id === id);
   const nombreEst = (id) => (estilistas.find((e) => e.id === id) || {}).nombre || "";
 
   const [vista, setVista] = useState("dia");
   const [fechaSel, setFechaSel] = useState(hoyISO());
   const [filtroEst, setFiltroEst] = useState("todos");
+
+  const [editId, setEditId] = useState(null);
+  const [fc, setFc] = useState({ servicios: [], buscaServ: "", mostrarServ: false, metodoPago: "efectivo", estilistaId: "" });
+  const [deshacer, setDeshacer] = useState(null);
+  const deshacerTimer = useRef(null);
+  useEffect(() => () => clearTimeout(deshacerTimer.current), []);
+
+  const empezarEdicionCobro = (c) => {
+    setEditId(c.id);
+    setFc({ servicios: c.servicios || [], buscaServ: "", mostrarServ: false, metodoPago: c.metodoPago || "efectivo", estilistaId: c.estilistaId || "" });
+  };
+  const cancelarEdicionCobro = () => setEditId(null);
+  const totalFc = fc.servicios.reduce((acc, id) => {
+    const s = servicioDe(id);
+    if (!s) return acc;
+    return acc + (fc.metodoPago === "efectivo" ? (s.precioEfectivo || s.precio || 0) : (s.precio || 0));
+  }, 0);
+  const toggleServFc = (id) => setFc((act) => ({
+    ...act,
+    servicios: act.servicios.includes(id) ? act.servicios.filter((x) => x !== id) : [...act.servicios, id],
+  }));
+  const guardarEdicionCobro = () => {
+    if (fc.servicios.length === 0 || (estReq && !fc.estilistaId)) return;
+    guardar({ ...datos, cobros: cobros.map((c) => c.id === editId ? { ...c, servicios: fc.servicios, metodoPago: fc.metodoPago, estilistaId: fc.estilistaId, monto: totalFc } : c) });
+    setEditId(null);
+  };
+  const borrarCobro = (id) => {
+    const c = cobros.find((x) => x.id === id);
+    guardar({ ...datos, cobros: cobros.filter((x) => x.id !== id) });
+    setDeshacer(c);
+    clearTimeout(deshacerTimer.current);
+    deshacerTimer.current = setTimeout(() => setDeshacer(null), 8000);
+  };
+  const deshacerBorrado = () => {
+    if (!deshacer) return;
+    guardar({ ...datos, cobros: [...cobros, deshacer] });
+    setDeshacer(null);
+    clearTimeout(deshacerTimer.current);
+  };
 
   const mover = (dir) => {
     if (vista === "mes") {
@@ -1764,6 +1804,62 @@ function Facturacion({ datos }) {
 
       <div className="card">
         {enRango.length === 0 ? <div className="vacio">Todavía no se registraron cobros en este período.</div> : enRango.map((c) => {
+          if (editId === c.id) {
+            const serviciosSelC = fc.servicios.map((id) => servicioDe(id)).filter(Boolean);
+            const disponiblesC = servicios.filter((s) => !fc.servicios.includes(s.id));
+            const qc = (fc.buscaServ || "").trim().toLowerCase();
+            const coincidenciasC = (qc ? disponiblesC.filter((s) => s.nombre.toLowerCase().includes(qc)) : disponiblesC).slice(0, 8);
+            return (
+              <div className="item" key={c.id} style={{ flexDirection: "column", alignItems: "stretch", gap: 10, paddingTop: 14, paddingBottom: 14 }}>
+                <label>Servicios</label>
+                <div className="campo" style={{ position: "relative" }}>
+                  {serviciosSelC.length > 0 && (
+                    <div className="servchips" style={{ marginBottom: 8 }}>
+                      {serviciosSelC.map((s) => (
+                        <button key={s.id} className="schip on" onClick={() => toggleServFc(s.id)}>{s.nombre} ✕</button>
+                      ))}
+                    </div>
+                  )}
+                  <input placeholder="Buscar o elegir servicio…" value={fc.buscaServ || ""}
+                    onFocus={() => setFc((act) => ({ ...act, mostrarServ: true }))}
+                    onBlur={() => setTimeout(() => setFc((act) => ({ ...act, mostrarServ: false })), 150)}
+                    onChange={(e) => setFc((act) => ({ ...act, buscaServ: e.target.value, mostrarServ: true }))} />
+                  {fc.mostrarServ && coincidenciasC.length > 0 && (
+                    <div className="sugerencias">
+                      {coincidenciasC.map((s) => (
+                        <button key={s.id} className="sug" onClick={() => setFc((act) => ({ ...act, servicios: [...act.servicios, s.id], buscaServ: "" }))}>
+                          {s.nombre} <span className="det">· {s.min}′</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {estilistas.length > 0 && (
+                  <>
+                    <label>Estilista</label>
+                    <div className="servchips">
+                      {estilistas.map((e) => (
+                        <button key={e.id} className={"schip" + (fc.estilistaId === e.id ? " on" : "")}
+                          onClick={() => setFc((act) => ({ ...act, estilistaId: e.id }))}>{e.nombre}</button>
+                      ))}
+                    </div>
+                  </>
+                )}
+                <label>Cómo paga</label>
+                <div className="vsel" style={{ width: "fit-content" }}>
+                  {[["efectivo", "Efectivo"], ["tarjeta", "Tarjeta/transferencia"]].map(([k, l]) => (
+                    <button key={k} className={fc.metodoPago === k ? "on" : ""} onClick={() => setFc((act) => ({ ...act, metodoPago: k }))}>{l}</button>
+                  ))}
+                </div>
+                <div className="durinfo" style={{ fontSize: 18, fontWeight: 700 }}>Total: {fmtPlata(totalFc)}</div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button className="btn" onClick={guardarEdicionCobro}
+                    disabled={fc.servicios.length === 0 || (estReq && !fc.estilistaId)}>Guardar cambios</button>
+                  <button className="btn sec" onClick={cancelarEdicionCobro}>Cancelar</button>
+                </div>
+              </div>
+            );
+          }
           const nombresServ = (c.servicios || []).map((sid) => (servicioDe(sid) || {}).nombre || sid).join(", ");
           return (
             <div className="item" key={c.id}>
@@ -1771,11 +1867,24 @@ function Facturacion({ datos }) {
                 <div className="nom">{nombresServ || "—"}</div>
                 <div className="det">{fmtFecha(c.fecha)} · {c.metodoPago === "efectivo" ? "Efectivo" : "Tarjeta/transferencia"}{nombreEst(c.estilistaId) && " · " + nombreEst(c.estilistaId)}</div>
               </div>
-              <div className="hora">{fmtPlata(c.monto || 0)}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                <div className="hora">{fmtPlata(c.monto || 0)}</div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+                  <button className="link" onClick={() => empezarEdicionCobro(c)}>Editar</button>
+                  <button className="link" onClick={() => borrarCobro(c.id)}>Borrar</button>
+                </div>
+              </div>
             </div>
           );
         })}
       </div>
+
+      {deshacer && (
+        <div className="toast">
+          <span>Cobro borrado.</span>
+          <button onClick={deshacerBorrado}>Deshacer</button>
+        </div>
+      )}
     </>
   );
 }
