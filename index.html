@@ -189,6 +189,17 @@ const SWATCHES = ["#141414", "#2E2E2E", "#4A4A4A", "#6B6B6B", "#8A8A8A", "#ABABA
 const SYNC_URL_DEFAULT = "https://app-delta-b0a47-default-rtdb.firebaseio.com/";
 const MAIL_BACKUP_DEFAULT = "peluqueria.delta@gmail.com";
 const uid = () => Math.random().toString(36).slice(2, 9);
+/* medios de pago y % por defecto que se queda Mercado Pago (se editan en Ajustes).
+   "tarjeta" es el valor viejo de cobros anteriores: usa el % de crédito. */
+const METODOS_PAGO = [["efectivo", "Efectivo"], ["debito", "Tarjeta débito"], ["credito", "Tarjeta crédito"], ["qr", "QR"], ["transferencia", "Transferencia"]];
+const PCT_MP_DEF = { debito: 3.14, credito: 6.29, qr: 1.41, transferencia: 0 };
+const nombreMetodo = (m) => (METODOS_PAGO.find(([k]) => k === m) || [, m === "tarjeta" ? "Tarjeta" : m])[1];
+const pctMetodo = (config, m) => {
+  if (m === "efectivo") return 0;
+  const p = (config && config.porcentajesMP) || {};
+  const k = m === "tarjeta" ? "credito" : m;
+  return p[k] != null ? p[k] : (PCT_MP_DEF[k] != null ? PCT_MP_DEF[k] : 0);
+};
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 const addDias = (iso, n) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 const lunesDe = (iso) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); };
@@ -726,7 +737,6 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   const servicios = datos.config.servicios || [];
   const precios = datos.config.precios || [];
   const estilistas = datos.config.estilistas || [];
-  const porcentajeMP = datos.config.porcentajeMP != null ? datos.config.porcentajeMP : 6.29;
   const [vista, setVista] = useState("dia");
   const [fechaSel, setFechaSel] = useState(hoyISO());
   const [f, setF] = useState({ clienteId: "", hora: "10:00", servicios: [], estilistaId: "", modo: "base", nombreNuevo: "", telNuevo: "", busca: "", buscaServ: "", mostrarServ: false, fecha: hoyISO() });
@@ -833,8 +843,8 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   const totalCobro = fc.servicios.reduce((acc, id) => { const s = precios.find((x) => x.id === id); return acc + (s ? precioCobro(s) : 0); }, 0);
   const registrarCobro = () => {
     if (fc.servicios.length === 0 || (estReq && !fc.estilistaId)) return;
-    const montoNeto = fc.metodoPago === "efectivo" ? totalCobro : Math.round(totalCobro * (1 - porcentajeMP / 100));
-    const nuevo = { id: uid(), fecha: hoyISO(), servicios: fc.servicios, metodoPago: fc.metodoPago, estilistaId: fc.estilistaId, monto: totalCobro, montoNeto };
+    const montoNeto = Math.round(totalCobro * (1 - pctMetodo(datos.config, fc.metodoPago) / 100));
+    const nuevo ={ id: uid(), fecha: hoyISO(), servicios: fc.servicios, metodoPago: fc.metodoPago, estilistaId: fc.estilistaId, monto: totalCobro, montoNeto };
     guardar({ ...datos, cobros: [...cobros, nuevo] });
     setFc({ servicios: [], buscaServ: "", mostrarServ: false, metodoPago: "efectivo", estilistaId: "" });
     setMostrarCobro(false);
@@ -997,16 +1007,14 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
               </>
             )}
             <label style={{ marginTop: 12 }}>Cómo paga</label>
-            <div className="vsel" style={{ width: "fit-content" }}>
-              {[["efectivo", "Efectivo"], ["tarjeta", "Tarjeta/transferencia"]].map(([k, l]) => (
-                <button key={k} className={fc.metodoPago === k ? "on" : ""} onClick={() => setFc((act) => ({ ...act, metodoPago: k }))}>{l}</button>
-              ))}
-            </div>
+            <select value={fc.metodoPago} onChange={(e) => { const v = e.target.value; setFc((act) => ({ ...act, metodoPago: v })); }}>
+              {METODOS_PAGO.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
             <div className="durinfo" style={{ marginTop: 14, fontSize: 20, fontWeight: 700 }}>
               Total a cobrar: ${totalCobro.toLocaleString("es-AR")}
             </div>
             {fc.metodoPago !== "efectivo" && (
-              <div className="det">Ingresa neto (después del {porcentajeMP}% de Mercado Pago): ${Math.round(totalCobro * (1 - porcentajeMP / 100)).toLocaleString("es-AR")}</div>
+              <div className="det">Ingresa neto (después del {pctMetodo(datos.config, fc.metodoPago)}% de Mercado Pago): ${Math.round(totalCobro * (1 - pctMetodo(datos.config, fc.metodoPago) / 100)).toLocaleString("es-AR")}</div>
             )}
             <button className="btn" style={{ marginTop: 12 }} onClick={registrarCobro}
               disabled={fc.servicios.length === 0 || (estReq && !fc.estilistaId)}>Registrar cobro</button>
@@ -1693,12 +1701,11 @@ function Facturacion({ datos, guardar }) {
   const config = datos.config;
   const servicios = config.precios || [];
   const estilistas = config.estilistas || [];
-  const porcentajeMP = config.porcentajeMP != null ? config.porcentajeMP : 6.29;
   const estReq = estilistas.length > 0;
   const servicioDe = (id) => servicios.find((s) => s.id === id);
   const nombreEst = (id) => (estilistas.find((e) => e.id === id) || {}).nombre || "";
-  const nombreFormaPago = (c) => c.metodoPago === "efectivo" ? "Efectivo" : "Tarjeta/transferencia";
-  const netoDe = (c) => c.montoNeto != null ? c.montoNeto : (c.metodoPago === "efectivo" ? (c.monto || 0) : Math.round((c.monto || 0) * (1 - porcentajeMP / 100)));
+  const nombreFormaPago = (c) => nombreMetodo(c.metodoPago);
+  const netoDe = (c) => c.montoNeto != null ? c.montoNeto : Math.round((c.monto || 0) * (1 - pctMetodo(config, c.metodoPago) / 100));
 
   const [vista, setVista] = useState("dia");
   const [fechaSel, setFechaSel] = useState(hoyISO());
@@ -1712,7 +1719,7 @@ function Facturacion({ datos, guardar }) {
 
   const empezarEdicionCobro = (c) => {
     setEditId(c.id);
-    setFc({ servicios: c.servicios || [], buscaServ: "", mostrarServ: false, metodoPago: c.metodoPago || "efectivo", estilistaId: c.estilistaId || "" });
+    setFc({ servicios: c.servicios || [], buscaServ: "", mostrarServ: false, metodoPago: c.metodoPago === "tarjeta" ? "credito" : (c.metodoPago || "efectivo"), estilistaId: c.estilistaId || "" });
   };
   const cancelarEdicionCobro = () => setEditId(null);
   const totalFc = fc.servicios.reduce((acc, id) => {
@@ -1726,7 +1733,7 @@ function Facturacion({ datos, guardar }) {
   }));
   const guardarEdicionCobro = () => {
     if (fc.servicios.length === 0 || (estReq && !fc.estilistaId)) return;
-    const montoNeto = fc.metodoPago === "efectivo" ? totalFc : Math.round(totalFc * (1 - porcentajeMP / 100));
+    const montoNeto = Math.round(totalFc * (1 - pctMetodo(config, fc.metodoPago) / 100));
     guardar({ ...datos, cobros: cobros.map((c) => c.id === editId ? { ...c, servicios: fc.servicios, metodoPago: fc.metodoPago, estilistaId: fc.estilistaId, monto: totalFc, montoNeto } : c) });
     setEditId(null);
   };
@@ -1842,7 +1849,7 @@ function Facturacion({ datos, guardar }) {
           <h3 style={{ marginBottom: 10 }}>Planilla por día{filtroEst !== "todos" ? ` · ${nombreEst(filtroEst)}` : ""}</h3>
           <table className="tablaPlanilla">
             <thead>
-              <tr><th>Día</th><th>Efectivo</th><th>Tarjeta</th><th>Cobrado</th><th>Neto</th></tr>
+              <tr><th>Día</th><th>Efectivo</th><th>Digital</th><th>Cobrado</th><th>Neto</th></tr>
             </thead>
             <tbody>
               {diasConCobro.map((dia) => (
@@ -1913,11 +1920,9 @@ function Facturacion({ datos, guardar }) {
                   </>
                 )}
                 <label>Cómo paga</label>
-                <div className="vsel" style={{ width: "fit-content" }}>
-                  {[["efectivo", "Efectivo"], ["tarjeta", "Tarjeta/transferencia"]].map(([k, l]) => (
-                    <button key={k} className={fc.metodoPago === k ? "on" : ""} onClick={() => setFc((act) => ({ ...act, metodoPago: k }))}>{l}</button>
-                  ))}
-                </div>
+                <select value={fc.metodoPago} onChange={(e) => { const v = e.target.value; setFc((act) => ({ ...act, metodoPago: v })); }}>
+                  {METODOS_PAGO.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                </select>
                 <div className="durinfo" style={{ fontSize: 18, fontWeight: 700 }}>Total: {fmtPlata(totalFc)}</div>
                 <div style={{ display: "flex", gap: 10 }}>
                   <button className="btn" onClick={guardarEdicionCobro}
@@ -2039,7 +2044,6 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado, notifOn,
   const { config } = datos;
   const servicios = config.servicios || [];
   const estilistas = config.estilistas || [];
-  const porcentajeMP = config.porcentajeMP != null ? config.porcentajeMP : 6.29;
   const [ns, setNs] = useState({ nombre: "", min: 30 });
   const [ne, setNe] = useState("");
   const [msgImport, setMsgImport] = useState("");
@@ -2114,7 +2118,7 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado, notifOn,
     setNe("");
   };
 
-  const guardarPorcentajeMP = (v) => guardar({ ...datos, config: { ...config, porcentajeMP: Math.max(0, +v || 0) } });
+  const guardarPorcentajeMP = (metodo, v) => guardar({ ...datos, config: { ...config, porcentajesMP: { ...(config.porcentajesMP || {}), [metodo]: Math.max(0, +v || 0) } } });
 
   return (
     <>
@@ -2231,10 +2235,12 @@ function Ajustes({ datos, guardar, syncUrl, cambiarSyncUrl, syncEstado, notifOn,
 
       <div className="card">
         <h3 style={{ marginBottom: 4 }}>Mercado Pago</h3>
-        <div className="det" style={{ marginBottom: 10 }}>% promedio que se queda Mercado Pago en los cobros con tarjeta/QR, para calcular lo que realmente ingresa (no lo que se cobra). Como no se sabe de antemano qué medio exacto usa cada cliente, se usa un solo promedio para todo lo que no es efectivo.</div>
-        <div className="fila" style={{ alignItems: "center" }}>
-          <div className="campo" style={{ maxWidth: 110 }}><label>% promedio</label>
-            <input type="number" min={0} step={0.01} value={porcentajeMP} onChange={(e) => guardarPorcentajeMP(e.target.value)} /></div>
+        <div className="det" style={{ marginBottom: 10 }}>% que se queda Mercado Pago según el medio de pago, para calcular lo que realmente ingresa (no lo que se cobra). El efectivo no tiene descuento.</div>
+        <div className="fila">
+          {METODOS_PAGO.filter(([k]) => k !== "efectivo").map(([k, l]) => (
+            <div className="campo" style={{ minWidth: 120 }} key={k}><label>{l} (%)</label>
+              <input type="number" min={0} step={0.01} value={pctMetodo(config, k)} onChange={(e) => guardarPorcentajeMP(k, e.target.value)} /></div>
+          ))}
         </div>
       </div>
 
