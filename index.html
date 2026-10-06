@@ -1225,6 +1225,8 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
                       min = Math.round(min / 30) * 30;
                       min = Math.max(600, Math.min(1110, min));
                       setEditId(null);
+                      setFormAbierto(true);
+                      setMostrarCobro(false);
                       setF((prev) => ({ ...prev, clienteId: "", servicios: [], estilistaId: "", busca: "", hora: aHora(min) }));
                       setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
                     }}>
