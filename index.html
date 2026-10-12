@@ -203,7 +203,15 @@ const pctMetodo = (config, m) => {
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 const addDias = (iso, n) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 const lunesDe = (iso) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); };
-const cerrado = (iso) => [0, 1].includes(new Date(iso + "T12:00:00").getDay());
+/* cerrado: domingos siempre; lunes también, salvo en diciembre (se trabaja de lunes a sábado) */
+const cerrado = (iso) => {
+  const d = new Date(iso + "T12:00:00");
+  const dow = d.getDay();
+  if (dow === 0) return true;
+  if (dow === 1) return d.getMonth() !== 11;
+  return false;
+};
+const DIAS_CORTO = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
 const HORAS = Array.from({ length: 18 }, (_, i) => `${String(10 + Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"}`);
 const SERV_DEF = [
   { id: "corte", nombre: "Corte", min: 30 },
@@ -737,6 +745,12 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   const servicios = datos.config.servicios || [];
   const precios = datos.config.precios || [];
   const estilistas = datos.config.estilistas || [];
+  /* anotaciones de la agenda (ej. "Aldi no está de 14 a 16 por turno médico").
+     Viajan dentro de config para no necesitar un nodo nuevo en Firebase. */
+  const notasAgenda = datos.config.notasAgenda || [];
+  const notasDe = (fecha) => notasAgenda.filter((n) => n.fecha === fecha).sort((a, b) => (a.desde || "").localeCompare(b.desde || ""));
+  const [mostrarNota, setMostrarNota] = useState(false);
+  const [fn, setFn] = useState({ texto: "", desde: "", hasta: "", estilistaId: "" });
   const [vista, setVista] = useState("dia");
   const [fechaSel, setFechaSel] = useState(hoyISO());
   const [f, setF] = useState({ clienteId: "", hora: "10:00", servicios: [], estilistaId: "", modo: "base", nombreNuevo: "", telNuevo: "", busca: "", buscaServ: "", mostrarServ: false, fecha: hoyISO() });
@@ -786,13 +800,13 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
     setEditId(t.id);
     setFormAbierto(true);
     setMostrarCobro(false);
-    setF({ clienteId: t.clienteId, hora: t.hora, servicios: t.servicios || [], estilistaId: t.estilistaId || "", modo: "base", nombreNuevo: "", telNuevo: "", busca: "", fecha: t.fecha });
+    setF({ clienteId: t.clienteId, hora: t.hora, servicios: t.servicios || [], estilistaId: t.estilistaId || "", modo: "base", nombreNuevo: "", telNuevo: "", busca: "", fecha: t.fecha, nota: t.nota || "" });
     setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   };
   const cancelarEdicion = () => {
     setEditId(null);
     setFormAbierto(false);
-    setF({ ...f, clienteId: "", servicios: [], estilistaId: "", busca: "" });
+    setF({ ...f, clienteId: "", servicios: [], estilistaId: "", busca: "", nota: "" });
   };
   const estReq = estilistas.length > 0;
   const guardarEdicion = () => {
@@ -802,7 +816,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
     guardar({
       ...datos,
       turnos: turnos.map((t) => t.id === editId
-        ? { ...t, clienteId: f.clienteId, hora: f.hora, servicios: f.servicios, estilistaId: f.estilistaId, fecha: f.fecha, recordado: cambioHorario ? false : t.recordado }
+        ? { ...t, clienteId: f.clienteId, hora: f.hora, servicios: f.servicios, estilistaId: f.estilistaId, fecha: f.fecha, nota: (f.nota || "").trim(), recordado: cambioHorario ? false : t.recordado }
         : t),
     });
     if (f.fecha !== fechaSel) setFechaSel(f.fecha);
@@ -820,7 +834,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
 
   const agregar = () => {
     if (!f.hora || f.servicios.length === 0 || (estReq && !f.estilistaId)) return;
-    const nuevoTurno = (clienteId) => ({ clienteId, hora: f.hora, servicios: f.servicios, estilistaId: f.estilistaId, fecha: fechaSel, id: uid(), recordado: false });
+    const nuevoTurno = (clienteId) => ({ clienteId, hora: f.hora, servicios: f.servicios, estilistaId: f.estilistaId, fecha: fechaSel, id: uid(), recordado: false, nota: (f.nota || "").trim() });
     const listaEsperaSinEsta = desdeEspera ? listaEspera.filter((x) => x.id !== desdeEspera.id) : listaEspera;
     if (f.modo === "nuevo") {
       if (!f.nombreNuevo.trim()) return;
@@ -831,9 +845,19 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
       guardar({ ...datos, turnos: [...turnos, nuevoTurno(f.clienteId)], listaEspera: listaEsperaSinEsta });
     }
     if (desdeEspera) limpiarDesdeEspera();
-    setF({ ...f, clienteId: "", servicios: [], estilistaId: "", busca: "", nombreNuevo: "", telNuevo: "" });
+    setF({ ...f, clienteId: "", servicios: [], estilistaId: "", busca: "", nombreNuevo: "", telNuevo: "", nota: "" });
     setFormAbierto(false);
   };
+
+  const guardarNotasAgenda = (lista) => guardar({ ...datos, config: { ...datos.config, notasAgenda: lista } });
+  const agregarNota = () => {
+    if (!fn.texto.trim()) return;
+    const nueva = { id: uid(), fecha: fechaSel, texto: fn.texto.trim(), desde: fn.desde || "", hasta: fn.hasta || "", estilistaId: fn.estilistaId || "" };
+    guardarNotasAgenda([...notasAgenda, nueva]);
+    setFn({ texto: "", desde: "", hasta: "", estilistaId: "" });
+    setMostrarNota(false);
+  };
+  const borrarNota = (id) => guardarNotasAgenda(notasAgenda.filter((n) => n.id !== id));
 
   const toggleServCobro = (id) => setFc((act) => ({
     ...act,
@@ -903,11 +927,11 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
   };
 
   const lunes = lunesDe(fechaSel);
-  const diasSemana = Array.from({ length: 5 }, (_, i) => addDias(lunes, i + 1));
+  const diasSemana = Array.from({ length: 6 }, (_, i) => addDias(lunes, i)).filter((d) => !cerrado(d));
   const dSel = new Date(fechaSel + "T12:00:00");
 
   const titulo = vista === "dia" ? fmtFecha(fechaSel)
-    : vista === "semana" ? `Semana del ${new Date(addDias(lunes, 1) + "T12:00:00").getDate()} al ${new Date(addDias(lunes, 5) + "T12:00:00").getDate()} de ${dSel.toLocaleDateString("es-AR", { month: "long" })}`
+    : vista === "semana" ? `Semana del ${new Date(diasSemana[0] + "T12:00:00").getDate()} al ${new Date(diasSemana[diasSemana.length - 1] + "T12:00:00").getDate()} de ${dSel.toLocaleDateString("es-AR", { month: "long" })}`
     : dSel.toLocaleDateString("es-AR", { month: "long", year: "numeric" });
 
   /* celdas del mes */
@@ -916,8 +940,9 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
     const d = new Date(dSel.getFullYear(), dSel.getMonth(), i + 1, 12);
     return d.toISOString().slice(0, 10);
   }).filter((d) => !cerrado(d));
-  const offset = (new Date(abiertos[0] + "T12:00:00").getDay() + 5) % 7;
-  const celdas = [...Array(offset).fill(null), ...abiertos];
+  const colsMes = abiertos.some((d) => new Date(d + "T12:00:00").getDay() === 1) ? ["lun", ...DIAS_LAB] : DIAS_LAB;
+  const offset = new Date(abiertos[0] + "T12:00:00").getDay() - (colsMes.length === 6 ? 1 : 2);
+  const celdas = [...Array(Math.max(0, offset)).fill(null), ...abiertos];
 
   const irADia = (fecha) => { setFechaSel(fecha); setVista("dia"); };
 
@@ -1063,7 +1088,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
       <div className="vtit" style={{ marginBottom: 12 }}>{titulo}</div>
 
       {vista === "dia" && cerrado(fechaSel) && (
-        <div className="card"><div className="vacio">La peluquería está cerrada los domingos y lunes.</div></div>
+        <div className="card"><div className="vacio">La peluquería está cerrada ese día (domingos, y lunes salvo en diciembre).</div></div>
       )}
       {vista === "dia" && !cerrado(fechaSel) && (() => {
         const HPX = 64;
@@ -1079,8 +1104,57 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
         const LANE_PX = 150;
         return (
           <>
+            {notasDe(fechaSel).length > 0 && (
+              <div className="card" style={{ background: "#FFF9E8", borderColor: "#F0DFA8", padding: 12 }}>
+                {notasDe(fechaSel).map((n) => (
+                  <div key={n.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "4px 0" }}>
+                    <div style={{ fontSize: 14 }}>
+                      📌 <strong>{n.desde ? `${n.desde}${n.hasta ? "–" + n.hasta : ""} · ` : ""}{n.estilistaId ? ((estilistas.find((e) => e.id === n.estilistaId) || {}).nombre || "") + " · " : ""}</strong>{n.texto}
+                    </div>
+                    <button className="link" onClick={() => borrarNota(n.id)}>Borrar</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {mostrarNota && (
+              <div className="card">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <h3>Anotación del día</h3>
+                  <button className="link" onClick={() => setMostrarNota(false)}>Cerrar</button>
+                </div>
+                <label>Qué querés anotar</label>
+                <input placeholder="Ej: turno médico, no atiende" value={fn.texto} onChange={(e) => setFn({ ...fn, texto: e.target.value })} />
+                <div className="fila" style={{ marginTop: 10 }}>
+                  <div className="campo"><label>Desde (opcional)</label>
+                    <select value={fn.desde} onChange={(e) => setFn({ ...fn, desde: e.target.value })}>
+                      <option value="">Todo el día</option>
+                      {HORAS.map((h) => <option key={h} value={h}>{h}</option>)}
+                    </select></div>
+                  <div className="campo"><label>Hasta</label>
+                    <select value={fn.hasta} disabled={!fn.desde} onChange={(e) => setFn({ ...fn, hasta: e.target.value })}>
+                      <option value="">—</option>
+                      {HORAS.filter((h) => !fn.desde || h > fn.desde).map((h) => <option key={h} value={h}>{h}</option>)}
+                    </select></div>
+                </div>
+                {estilistas.length > 0 && (
+                  <>
+                    <label style={{ marginTop: 10 }}>De quién (opcional)</label>
+                    <div className="servchips">
+                      {estilistas.map((e) => (
+                        <button key={e.id} className={"schip" + (fn.estilistaId === e.id ? " on" : "")}
+                          onClick={() => setFn((act) => ({ ...act, estilistaId: act.estilistaId === e.id ? "" : e.id }))}>{e.nombre}</button>
+                      ))}
+                    </div>
+                  </>
+                )}
+                <button className="btn" style={{ marginTop: 12 }} onClick={agregarNota} disabled={!fn.texto.trim()}>Guardar anotación</button>
+              </div>
+            )}
             {!editId && !formAbierto ? (
-              <button className="btn" style={{ marginBottom: 14, width: "100%" }} onClick={() => { setFormAbierto(true); setMostrarCobro(false); }}>+ Nuevo turno para este día</button>
+              <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                <button className="btn" style={{ flex: 1 }} onClick={() => { setFormAbierto(true); setMostrarCobro(false); setMostrarNota(false); }}>+ Nuevo turno para este día</button>
+                <button className="btn sec" onClick={() => { setMostrarNota((v) => !v); setMostrarCobro(false); }}>📌 Anotación</button>
+              </div>
             ) : (
             <div className="card" ref={formRef}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -1194,6 +1268,8 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
                   </div>
                 </>
               )}
+              <label style={{ marginTop: 12 }}>Nota (opcional, ej. dejó seña de $5.000)</label>
+              <input placeholder="Seña, aclaraciones…" value={f.nota || ""} onChange={(e) => { const v = e.target.value; setF((prev) => ({ ...prev, nota: v })); }} />
               {durSel > 0 && (
                 <div className="durinfo">
                   Ocupa {durSel >= 60 ? `${Math.floor(durSel / 60)} h ${durSel % 60 ? durSel % 60 + " min" : ""}` : `${durSel} min`} — de {f.hora} a {aHora(aMin(f.hora) + durSel)} hs
@@ -1210,7 +1286,7 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
                 <button className="btn" style={{ marginTop: 12 }} onClick={agregar}
                   disabled={f.servicios.length === 0 || (estReq && !f.estilistaId) || (f.modo === "nuevo" ? !f.nombreNuevo.trim() : !f.clienteId)}>Agendar turno</button>
               )}
-              {editId && cerrado(f.fecha) && <div className="aviso" style={{ marginTop: 10, marginBottom: 0 }}>⚠️ Esa fecha cae domingo o lunes, cuando el local está cerrado.</div>}
+              {editId && cerrado(f.fecha) && <div className="aviso" style={{ marginTop: 10, marginBottom: 0 }}>⚠️ Esa fecha cae un día en que el local está cerrado.</div>}
             </div>
             )}
 
@@ -1238,6 +1314,19 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
                       setF((prev) => ({ ...prev, clienteId: "", servicios: [], estilistaId: "", busca: "", hora: aHora(min) }));
                       setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
                     }}>
+                    {notasDe(fechaSel).filter((n) => n.desde).map((n) => {
+                      const ini = aMin(n.desde);
+                      const fin = n.hasta ? aMin(n.hasta) : Math.min(ini + 30, 1140);
+                      return (
+                        <div key={"nota" + n.id} style={{
+                          position: "absolute", left: 0, right: 0, pointerEvents: "none", zIndex: 0,
+                          top: (ini - 600) / 60 * HPX, height: Math.max((fin - ini) / 60 * HPX, 18),
+                          background: "repeating-linear-gradient(45deg,rgba(240,200,80,.28),rgba(240,200,80,.28) 6px,rgba(240,200,80,.12) 6px,rgba(240,200,80,.12) 12px)",
+                          borderTop: "1.5px dashed #D4A93A", borderBottom: "1.5px dashed #D4A93A",
+                          fontSize: 11, fontWeight: 700, color: "#6B4F00", padding: "1px 6px", overflow: "hidden",
+                        }}>📌 {n.texto}</div>
+                      );
+                    })}
                     {conPos.map(({ t, ini, fin, lane }) => {
                       const c = clienteDe(t);
                       const est = estilistaDe(t);
@@ -1285,8 +1374,9 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
                             ...(arrastrando ? { zIndex: 15, boxShadow: "0 6px 16px rgba(0,0,0,.3)", opacity: .92, cursor: "grabbing" } : {}),
                             ...(est ? (esAldi(est) ? { borderLeftColor: ALDI_BORDE, background: ALDI_FONDO } : { borderLeftColor: colorEst(est.id) }) : {}),
                           }}>
-                          <div className="tn">{c ? c.nombre : "(cliente eliminado)"}{t.recordado ? " ✓" : ""}</div>
+                          <div className="tn">{c ? c.nombre : "(cliente eliminado)"}{t.recordado ? " ✓" : ""}{t.nota ? " 📝" : ""}</div>
                           <div className="ts">{arrastrando ? `→ ${horaPreview} hs` : `${labelDe(t, servicios)}${est ? ` · ${est.nombre}` : ""}`}</div>
+                          {t.nota && !arrastrando && <div className="ts" style={{ fontWeight: 700 }}>📝 {t.nota}</div>}
                           <button className="x" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); borrar(t.id); }} title="Borrar turno">×</button>
                         </div>
                       );
@@ -1302,10 +1392,13 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
 
       {vista === "semana" && (
         <div className="scrollx">
-          <div className="semana">
+          <div className="semana" style={{ gridTemplateColumns: `repeat(${diasSemana.length},1fr)`, minWidth: diasSemana.length * 92 }}>
             {diasSemana.map((d, i) => (
               <div key={d} className={"diacol" + (d === hoyISO() ? " hoy" : "")} onClick={() => irADia(d)}>
-                <div className="dnum">{DIAS_LAB[i]} {new Date(d + "T12:00:00").getDate()}</div>
+                <div className="dnum">{DIAS_CORTO[new Date(d + "T12:00:00").getDay()]} {new Date(d + "T12:00:00").getDate()}</div>
+                {notasDe(d).map((n) => (
+                  <div className="tmini" key={n.id} style={{ background: "#FFF4D6", color: "#6B4F00" }}>📌 {n.desde ? n.desde + " " : ""}{n.texto}</div>
+                ))}
                 {turnosDe(d).map((t) => {
                   const c = clienteDe(t);
                   const est = estilistaDe(t);
@@ -1322,8 +1415,8 @@ function Agenda({ datos, guardar, clienteDe, desdeEspera, limpiarDesdeEspera }) 
       )}
 
       {vista === "mes" && (
-        <div className="mes">
-          {DIAS_LAB.map((d) => <div className="mcab" key={d}>{d}</div>)}
+        <div className="mes" style={{ gridTemplateColumns: `repeat(${colsMes.length},1fr)` }}>
+          {colsMes.map((d) => <div className="mcab" key={d}>{d}</div>)}
           {celdas.map((d, i) => d === null
             ? <div className="mcel off" key={"v" + i} />
             : (
